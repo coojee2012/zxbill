@@ -111,6 +111,7 @@
     <Compile Include="ZXJX10CDR.cs">
       <SubType>Code</SubType>
     </Compile>
+    <Content Include=".gitignore" />
     <Content Include="App.ico" />
     <None Include="config.ini">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>

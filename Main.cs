@@ -276,6 +276,157 @@ namespace Bill
 			}
 		}
 
+
+        // 中兴话单处理
+        public static void HandleZXJx10(string cdrdir,string lastProcessFileName, string tempCdrFile,string todayBillFile)
+        {
+
+            string zxCdrFile = cdrdir + @"\" + todayBillFile;
+
+            // 日期变更前最后处理一次前次文件
+            if (lastProcessFileName != "" && todayBillFile != lastProcessFileName && File.Exists(zxCdrFile))
+            {
+                zxCdrFile = cdrdir + @"\" + lastProcessFileName;
+            }
+
+            string zxj10BillFile = Directory.GetCurrentDirectory() + @"\test_zxj10.txt";
+
+            File.Delete(tempCdrFile);
+            File.Copy(zxCdrFile, tempCdrFile);
+            Console.WriteLine("{0} copied to {1}", zxCdrFile, tempCdrFile);
+
+
+            FileStream fsZxj10 = new FileStream(zxj10BillFile, FileMode.Create, FileAccess.Write);
+            fsZxj10.SetLength(0);
+
+            StreamWriter swZxj10 = new StreamWriter(fsZxj10, System.Text.Encoding.UTF8);
+
+            if (!File.Exists(tempCdrFile))
+            {
+                CreateInLog("话单文件不存在:" + tempCdrFile);
+                //CreateInLog("请按任意键结束程序！");
+
+                //Console.ReadLine();
+                //Environment.Exit(0);
+                return;
+            }
+
+            BinaryReader zxbr = new BinaryReader(new FileStream(tempCdrFile, FileMode.Open));
+            CreateInLog("开始解析中兴话单:" + zxCdrFile);
+            CreateInLog("总记录数:" + (zxbr.BaseStream.Length / 123).ToString());
+            DateTime ZXTime = new DateTime(1994, 1, 1);
+
+            while (zxbr.BaseStream.Position < zxbr.BaseStream.Length)
+            {
+                //Console.WriteLine("Remain Bytes:" + (zxbr.BaseStream.Length - zxbr.BaseStream.Position).ToString());
+                ZXJX10CDR zxCdr = new ZXJX10CDR();
+
+                zxCdr.RecordType = zxbr.ReadBytes(1);
+                zxCdr.PartRecordID = zxbr.ReadBytes(1);
+                zxCdr.NatureAddressOfCallerNumber = zxbr.ReadBytes(1);
+                zxCdr.CallerNumber = zxbr.ReadBytes(20);
+                zxCdr.NatureAddressOfCalleeNumber = zxbr.ReadBytes(1);
+                zxCdr.CalleeNumber = zxbr.ReadBytes(20);
+                zxCdr.StartTime = zxbr.ReadBytes(4);
+                zxCdr.StartTicks = zxbr.ReadBytes(1);
+                zxCdr.ServiceCategory = zxbr.ReadBytes(1);
+                zxCdr.EndTime = zxbr.ReadBytes(4);
+                zxCdr.EndTicks = zxbr.ReadBytes(1);
+                zxCdr.ReleaseReason = zxbr.ReadBytes(1);
+                zxCdr.CallerType = zxbr.ReadBytes(1);
+                zxCdr.CallProperties = zxbr.ReadBytes(1);
+                zxCdr.IncomingTrunkGroup = zxbr.ReadBytes(2);
+                zxCdr.OutgoingTrunkGroup = zxbr.ReadBytes(2);
+                zxCdr.SupplementServicee = zxbr.ReadBytes(7);
+                zxCdr.ChargePartyID = zxbr.ReadBytes(1);
+                zxCdr.NatureAddressOfLinkNumber = zxbr.ReadBytes(1);
+                zxCdr.LinkNumber = zxbr.ReadBytes(20);
+                zxCdr.Fee = zxbr.ReadBytes(4);
+                zxCdr.BearerServices = zxbr.ReadBytes(1);
+                zxCdr.TerminalServices = zxbr.ReadBytes(1);
+                zxCdr.UUS1 = zxbr.ReadBytes(1);
+                zxCdr.UUS3 = zxbr.ReadBytes(1);
+                zxCdr.CallerSpecialNumber = zxbr.ReadBytes(5);
+                zxCdr.CalleeSpecialNumber = zxbr.ReadBytes(5);
+                zxCdr.CentrexGroupID = zxbr.ReadBytes(2);
+                zxCdr.NatureAddressOfBilledNumber = zxbr.ReadBytes(1);
+                zxCdr.BilledNumber = zxbr.ReadBytes(11);
+
+
+                // = Convert.ToInt32("10", 16)
+                string startStr = BitConverter.ToString(zxCdr.StartTime);
+                string[] startStrs = startStr.Split('-');
+                string startStrRevert = startStrs[3] + startStrs[2] + startStrs[1] + startStrs[0];
+                long startSec = Convert.ToInt64(startStrRevert, 16);
+                DateTime newDate = ZXTime.AddSeconds(startSec);
+                // 真尼玛坑  为什么要反转下字符串
+
+                swZxj10.Write("StartTime:" + newDate.ToString("yyyy-MM-dd HH:mm:ss"));
+
+
+                string endStr = BitConverter.ToString(zxCdr.EndTime);
+                string[] endStrs = endStr.Split('-');
+                string endStrRevert = endStrs[3] + endStrs[2] + endStrs[1] + endStrs[0];
+                long endSec = Convert.ToInt64(endStrRevert, 16);
+                newDate = ZXTime.AddSeconds(endSec);
+
+                swZxj10.Write(" EndTime:" + newDate.ToString("yyyy-MM-dd HH:mm:ss"));
+
+                swZxj10.Write(" Duration:" + (endSec - startSec).ToString());
+
+                // swZxj10.Write(" CallerNumer Original:");
+                // swZxj10.Write(BitConverter.ToString(zxCdr.CallerNumber));
+
+
+                swZxj10.Write(" CallerNumer:");
+
+                string CallerNumber = "";
+                for (int i = 0; i < zxCdr.CallerNumber.Length; i++)
+                {
+                    string str = Conver16To2Right2(zxCdr.CallerNumber[i], '0');
+                    if (str == "11111111")
+                    {
+                        break;
+                    }
+
+
+                    CallerNumber += ConvertZXBCD(str.Substring(4, 4), 8);
+                    CallerNumber += ConvertZXBCD(str.Substring(0, 4), 8);
+
+                }
+                swZxj10.Write(CallerNumber);
+
+
+
+                // swZxj10.Write(" CalleeNumer Original:");
+                // swZxj10.Write(BitConverter.ToString(zxCdr.CalleeNumber));
+
+                swZxj10.Write(" CalleeNumber:");
+
+                string CalleeNumber = "";
+                for (int i = 0; i < zxCdr.CalleeNumber.Length; i++)
+                {
+                    string str = Conver16To2Right2(zxCdr.CalleeNumber[i], '0');
+                    if (str == "11111111")
+                    {
+                        break;
+                    }
+
+                    CalleeNumber += ConvertZXBCD(str.Substring(4, 4), 8);
+                    CalleeNumber += ConvertZXBCD(str.Substring(0, 4), 8);
+
+                }
+                swZxj10.Write(CalleeNumber);
+                swZxj10.WriteLine();
+
+
+            }
+            swZxj10.Close();
+            zxbr.Close();
+
+           
+            CreateInLog("执行完毕，等待下一轮.");
+        }
 		/// <summary>
 		/// The main entry point for the application.
 		/// </summary>
@@ -317,7 +468,7 @@ namespace Bill
 			//string test = config.IniReadValue("db","host");
 			
 			string pbxtype = config.IniReadValue("general","pbxtype");
-			string cdrdir = config.IniReadValue("general","cdrdir");
+            string[] jx10cdrdir = config.IniReadValue("general", "jx10cdrdir").Split(';');
 
             CreateInLog("话单分析处理服务，启动成功！");
 
@@ -329,147 +480,19 @@ namespace Bill
             #region 中兴话单读取
             if (pbxtype == "zxj10")
 			{
-                CreateInLog("开始中兴话单分析！话单位置:" + cdrdir);
+                
+                string lastProcessZXFileName = "";
 				while(true){
                     try {
                         var now = DateTime.Now;
-                        string todayBillFile = "JF" + now.Year.ToString() + now.Month.ToString().PadLeft(2, '0') + ".B" + now.Day.ToString().PadLeft(2, '0');
-                        string zxCdrFile = Directory.GetCurrentDirectory() + @"\" + todayBillFile;
-
-                        string zxj10BillFile = Directory.GetCurrentDirectory() + @"\test_zxj10.txt";
-
-                        File.Delete(tempCdrFile);
-                        File.Copy(zxCdrFile, tempCdrFile);
-                        Console.WriteLine("{0} copied to {1}", zxCdrFile, tempCdrFile);
-
-
-                        FileStream fsZxj10 = new FileStream(zxj10BillFile, FileMode.Create, FileAccess.Write);
-                        fsZxj10.SetLength(0);
-
-                        StreamWriter swZxj10 = new StreamWriter(fsZxj10, System.Text.Encoding.UTF8);
-
-                        if (!File.Exists(tempCdrFile))
+                        string todayZXBillFile = "JF" + now.Year.ToString() + now.Month.ToString().PadLeft(2, '0') + ".B" + now.Day.ToString().PadLeft(2, '0');
+                        for (var i = 0; i < jx10cdrdir.Length; i++)
                         {
-                            CreateInLog("话单文件不存在:" + tempCdrFile);
-                            CreateInLog("请按任意键结束程序！");
-
-                            Console.ReadLine();
-                            Environment.Exit(0);
+                            CreateInLog("开始中兴话单分析！话单位置:" + jx10cdrdir[i]);
+                            HandleZXJx10(jx10cdrdir[i], lastProcessZXFileName, tempCdrFile, todayZXBillFile);
                         }
 
-                        BinaryReader zxbr = new BinaryReader(new FileStream(tempCdrFile, FileMode.Open));
-                        CreateInLog("开始解析中兴话单:" + zxCdrFile);
-                        CreateInLog("总记录数:" + (zxbr.BaseStream.Length / 123).ToString());
-                        DateTime ZXTime = new DateTime(1994, 1, 1);
-
-                        while (zxbr.BaseStream.Position < zxbr.BaseStream.Length)
-                        {
-                            //Console.WriteLine("Remain Bytes:" + (zxbr.BaseStream.Length - zxbr.BaseStream.Position).ToString());
-                            ZXJX10CDR zxCdr = new ZXJX10CDR();
-
-                            zxCdr.RecordType = zxbr.ReadBytes(1);
-                            zxCdr.PartRecordID = zxbr.ReadBytes(1);
-                            zxCdr.NatureAddressOfCallerNumber = zxbr.ReadBytes(1);
-                            zxCdr.CallerNumber = zxbr.ReadBytes(20);
-                            zxCdr.NatureAddressOfCalleeNumber = zxbr.ReadBytes(1);
-                            zxCdr.CalleeNumber = zxbr.ReadBytes(20);
-                            zxCdr.StartTime = zxbr.ReadBytes(4);
-                            zxCdr.StartTicks = zxbr.ReadBytes(1);
-                            zxCdr.ServiceCategory = zxbr.ReadBytes(1);
-                            zxCdr.EndTime = zxbr.ReadBytes(4);
-                            zxCdr.EndTicks = zxbr.ReadBytes(1);
-                            zxCdr.ReleaseReason = zxbr.ReadBytes(1);
-                            zxCdr.CallerType = zxbr.ReadBytes(1);
-                            zxCdr.CallProperties = zxbr.ReadBytes(1);
-                            zxCdr.IncomingTrunkGroup = zxbr.ReadBytes(2);
-                            zxCdr.OutgoingTrunkGroup = zxbr.ReadBytes(2);
-                            zxCdr.SupplementServicee = zxbr.ReadBytes(7);
-                            zxCdr.ChargePartyID = zxbr.ReadBytes(1);
-                            zxCdr.NatureAddressOfLinkNumber = zxbr.ReadBytes(1);
-                            zxCdr.LinkNumber = zxbr.ReadBytes(20);
-                            zxCdr.Fee = zxbr.ReadBytes(4);
-                            zxCdr.BearerServices = zxbr.ReadBytes(1);
-                            zxCdr.TerminalServices = zxbr.ReadBytes(1);
-                            zxCdr.UUS1 = zxbr.ReadBytes(1);
-                            zxCdr.UUS3 = zxbr.ReadBytes(1);
-                            zxCdr.CallerSpecialNumber = zxbr.ReadBytes(5);
-                            zxCdr.CalleeSpecialNumber = zxbr.ReadBytes(5);
-                            zxCdr.CentrexGroupID = zxbr.ReadBytes(2);
-                            zxCdr.NatureAddressOfBilledNumber = zxbr.ReadBytes(1);
-                            zxCdr.BilledNumber = zxbr.ReadBytes(11);
-
-
-                            // = Convert.ToInt32("10", 16)
-                            string startStr = BitConverter.ToString(zxCdr.StartTime);
-                            string[] startStrs = startStr.Split('-');
-                            string startStrRevert = startStrs[3] + startStrs[2] + startStrs[1] + startStrs[0];
-                            long startSec = Convert.ToInt64(startStrRevert, 16);
-                            DateTime newDate = ZXTime.AddSeconds(startSec);
-                            // 真尼玛坑  为什么要反转下字符串
-
-                            swZxj10.Write("StartTime:" + newDate.ToString("yyyy-MM-dd HH:mm:ss"));
-
-
-                            string endStr = BitConverter.ToString(zxCdr.EndTime);
-                            string[] endStrs = endStr.Split('-');
-                            string endStrRevert = endStrs[3] + endStrs[2] + endStrs[1] + endStrs[0];
-                            long endSec = Convert.ToInt64(endStrRevert, 16);
-                            newDate = ZXTime.AddSeconds(endSec);
-
-                            swZxj10.Write(" EndTime:" + newDate.ToString("yyyy-MM-dd HH:mm:ss"));
-
-                            swZxj10.Write(" Duration:" + (endSec - startSec).ToString());
-
-                            // swZxj10.Write(" CallerNumer Original:");
-                            // swZxj10.Write(BitConverter.ToString(zxCdr.CallerNumber));
-
-
-                            swZxj10.Write(" CallerNumer:");
-
-                            string CallerNumber = "";
-                            for (int i = 0; i < zxCdr.CallerNumber.Length; i++)
-                            {
-                                string str = Conver16To2Right2(zxCdr.CallerNumber[i], '0');
-                                if (str == "11111111")
-                                {
-                                    break;
-                                }
-
-
-                                CallerNumber += ConvertZXBCD(str.Substring(4, 4), 8);
-                                CallerNumber += ConvertZXBCD(str.Substring(0, 4), 8);
-
-                            }
-                            swZxj10.Write(CallerNumber);
-
-
-
-                            // swZxj10.Write(" CalleeNumer Original:");
-                            // swZxj10.Write(BitConverter.ToString(zxCdr.CalleeNumber));
-
-                            swZxj10.Write(" CalleeNumber:");
-
-                            string CalleeNumber = "";
-                            for (int i = 0; i < zxCdr.CalleeNumber.Length; i++)
-                            {
-                                string str = Conver16To2Right2(zxCdr.CalleeNumber[i], '0');
-                                if (str == "11111111")
-                                {
-                                    break;
-                                }
-
-                                CalleeNumber += ConvertZXBCD(str.Substring(4, 4), 8);
-                                CalleeNumber += ConvertZXBCD(str.Substring(0, 4), 8);
-
-                            }
-                            swZxj10.Write(CalleeNumber);
-                            swZxj10.WriteLine();
-
-
-                        }
-                        swZxj10.Close();
-                        zxbr.Close();
-                        CreateInLog("执行完毕，等待下一轮.");
+                        lastProcessZXFileName = todayZXBillFile; // 程序内部记住上一次处理文件名
                     }
                     catch (Exception ex)
                     {
@@ -479,8 +502,6 @@ namespace Bill
                     Thread.Sleep(1 * 1000 * 60);
 				
 				}
-
-
             }
             #endregion
 
