@@ -277,7 +277,7 @@ namespace Bill
 		}
 
 
-        // 中兴话单处理
+        // 中兴JX10话单处理
         public static void HandleZXJx10(string cdrdir,string lastProcessFileName, string tempCdrFile,string todayBillFile)
         {
 
@@ -311,7 +311,7 @@ namespace Bill
                 return;
             }
 
-            BinaryReader zxbr = new BinaryReader(new FileStream(tempCdrFile, FileMode.Open));
+            BinaryReader zxbr = new BinaryReader(new FileStream(tempCdrFile, FileMode.Open,FileAccess.Read));
             CreateInLog("开始解析中兴话单:" + zxCdrFile);
             CreateInLog("总记录数:" + (zxbr.BaseStream.Length / 123).ToString());
             DateTime ZXTime = new DateTime(1994, 1, 1);
@@ -424,10 +424,357 @@ namespace Bill
             swZxj10.Close();
             zxbr.Close();
 
-           
-            CreateInLog("执行完毕，等待下一轮.");
+
+            CreateInLog("中兴话单：" + zxCdrFile + "处理执行完毕!");
         }
-		/// <summary>
+		
+        
+        // 高凌GL04话单处理
+        public static void HandleGL04(string cdrdir, string lastProcessFileName, string tempCdrFile, string todayBillFile)
+        {
+
+
+            string glCdrFile = cdrdir + @"\" + todayBillFile;
+
+            // 日期变更前最后处理一次前次文件
+            if (lastProcessFileName != "" && todayBillFile != lastProcessFileName && File.Exists(glCdrFile))
+            {
+                glCdrFile = cdrdir + @"\" + lastProcessFileName;
+            }
+
+
+            File.Delete(tempCdrFile);
+            File.Copy(glCdrFile, tempCdrFile);
+            Console.WriteLine("{0} copied to {1}", glCdrFile, tempCdrFile);
+
+
+            string gl40BillFile = Directory.GetCurrentDirectory() + @"\test_ngl04.txt";
+
+            FileStream fsGl40 = new FileStream(gl40BillFile, FileMode.Create, FileAccess.Write);
+            fsGl40.SetLength(0);
+            StreamWriter swGl40 = new StreamWriter(fsGl40, System.Text.Encoding.UTF8);
+
+
+           
+
+            if (!File.Exists(glCdrFile))
+            {
+                CreateInLog("高凌04话单文件不存在:" + glCdrFile);
+                return;
+            }
+
+
+            BinaryReader br = new BinaryReader(new FileStream(tempCdrFile, FileMode.Open,FileAccess.Read));
+            CreateInLog("开始解析高凌NGL04话单:" + glCdrFile);
+            CreateInLog("总记录数:" + (br.BaseStream.Length / 96).ToString());
+
+            while (br.BaseStream.Position < br.BaseStream.Length)
+            {
+
+                // Console.WriteLine("Remain Bytes:"+ (br.BaseStream.Length - br.BaseStream.Position).ToString());
+
+                GaoLingCDR glCdr = new GaoLingCDR();
+
+                glCdr.LetterCode = br.ReadBytes(1);
+                glCdr.ModuleNumber = br.ReadBytes(1);
+                glCdr.CallCategory = br.ReadBytes(1);
+                glCdr.CallerAreaCode = br.ReadBytes(1);
+                glCdr.CalleeAreaCode = br.ReadBytes(1);
+                glCdr.EnterDirectionSign = br.ReadBytes(1); // 入局局向号/路由号
+                glCdr.BillingType = br.ReadBytes(1); //
+                glCdr.FreeOCharge = br.ReadBytes(1);
+                glCdr.StationOrNewServiceType = br.ReadBytes(1);
+                glCdr.CallerAndCalleeAddress = br.ReadBytes(1);
+                glCdr.CalleeNumber = br.ReadBytes(12);
+                glCdr.CallerUserType = br.ReadBytes(1);
+                glCdr.BillingSign = br.ReadBytes(1);
+                glCdr.CallEndDate = br.ReadBytes(4);
+                glCdr.OutTo = br.ReadBytes(1);
+                glCdr.Duration = br.ReadBytes(3);
+                glCdr.HangupReason = br.ReadBytes(1);
+                glCdr.HangupTime = br.ReadBytes(3);
+                glCdr.CallerNumer = br.ReadBytes(10);
+                glCdr.CTXCommunityNo = br.ReadBytes(1);
+                glCdr.CTXGroupNo = br.ReadBytes(1);
+                glCdr.ISDNType = br.ReadBytes(1);
+                glCdr.AlternateNumber = br.ReadBytes(1);
+
+                glCdr.NewBusinesIdentity = br.ReadBytes(7);
+                glCdr.UUS1 = br.ReadBytes(1);
+                glCdr.UUS2 = br.ReadBytes(1);
+                glCdr.BillingAddressNature = br.ReadBytes(1);
+                glCdr.BillingNumber = br.ReadBytes(10);
+                glCdr.CallerSpecialNumber = br.ReadBytes(4);
+                glCdr.CalleeSpecialNumber = br.ReadBytes(4);
+                glCdr.ConnectionNumberType = br.ReadBytes(1);
+
+                glCdr.TakeLength = br.ReadBytes(3);
+                glCdr.ConnectionNnumber = br.ReadBytes(8);
+                glCdr.CIC = br.ReadBytes(3);
+                glCdr.Other = br.ReadBytes(3); //文档记录有错误，应该是93-95
+
+
+
+                //Convert.ToInt32("28de1212", 16);
+                //Console.WriteLine(Convert.ToInt32(BitConverter.ToString(glCdr.CallCategory); 16));
+
+                string callEndStr = BitConverter.ToString(glCdr.CallEndDate);
+                string[] callEndStrs = callEndStr.Split('-');
+                callEndStr = callEndStrs[0] + callEndStrs[1] + "-" + callEndStrs[2] + "-" + callEndStrs[3];
+
+                string hangupTimeStr = BitConverter.ToString(glCdr.HangupTime);
+                string[] hangupTimeStrs = hangupTimeStr.Split('-');
+                hangupTimeStr = hangupTimeStrs[0].PadLeft(2, '0') + ":" + hangupTimeStrs[1].PadLeft(2, '0') + ":" + Convert.ToInt32(hangupTimeStrs[2], 16).ToString().PadLeft(2, '0');
+
+
+
+                DateTime ngl04HangupTime = Convert.ToDateTime(callEndStr + " " + hangupTimeStr);
+
+                int durationIndex = 0;
+                int[] durationMeight = new int[3] { 1000000, 1000, 1 };
+                int duration = 0;
+
+                foreach (byte b in glCdr.Duration)
+                {
+                    // 需要确认这个是取3个的和还是？
+                    string bstr = b.ToString("X2");
+                    int bint = Convert.ToInt32(bstr, 16);
+                    duration += durationMeight[durationIndex] * bint;
+                    durationIndex++;
+
+
+                }
+                swGl40.Write(" StartTime:" + ngl04HangupTime.AddSeconds(0 - duration).ToString("yyyy-MM-dd HH:mm:ss"));
+                swGl40.Write(" HangupTime:" + ngl04HangupTime.ToString("yyyy-MM-dd HH:mm:ss"));
+
+                swGl40.Write(" Duration:");
+                swGl40.Write(duration.ToString());
+
+                swGl40.Write(" CallerNumer Original:");
+                swGl40.Write(BitConverter.ToString(glCdr.CallerNumer));
+
+
+                swGl40.Write(" CallerNumer:");
+
+                string CallerNumber = "";
+                for (int i = 0; i < glCdr.CallerNumer.Length; i++)
+                {
+                    string str = Conver16To2Right2(glCdr.CallerNumer[i], '0');
+                    if (str == "00000000")
+                    {
+                        break;
+                    }
+
+                    CallerNumber += ConverGLBCD(str.Substring(0, 4), 8);
+                    CallerNumber += ConverGLBCD(str.Substring(4, 4), 8);
+
+                }
+                swGl40.Write(CallerNumber);
+
+
+
+                swGl40.Write(" CalleeNumber Original:");
+                swGl40.Write(BitConverter.ToString(glCdr.CalleeNumber));
+
+                swGl40.Write(" CalleeNumber:");
+
+                string CalleeNumber = "";
+                for (int i = 0; i < glCdr.CalleeNumber.Length; i++)
+                {
+                    string str = Conver16To2Right2(glCdr.CalleeNumber[i], '0');
+                    if (str == "00000000")
+                    {
+                        break;
+                    }
+
+                    CalleeNumber += ConverGLBCD(str.Substring(0, 4), 8);
+                    CalleeNumber += ConverGLBCD(str.Substring(4, 4), 8);
+
+                }
+                swGl40.Write(CalleeNumber);
+                swGl40.WriteLine();
+
+
+
+
+                // 下面是测试会用到的日志输出 不要删除
+
+                //Console.WriteLine("LetterCode:" + Conver16To10(glCdr.LetterCode).ToString());
+                //Console.WriteLine("ModuleNumber:" + Conver16To10(glCdr.ModuleNumber).ToString());
+                //Console.WriteLine("CallCategory:" + Conver16To10(glCdr.CallCategory).ToString());
+                //Console.WriteLine("CallerAreaCode:" + Conver16To10(glCdr.CallerAreaCode).ToString());
+                //Console.WriteLine("CallerAreaCode:" + Conver16To10(glCdr.CallerAreaCode).ToString());
+                //Console.WriteLine("CalleeAreaCode:" + Conver16To10(glCdr.CalleeAreaCode).ToString());
+                //Console.WriteLine("EnterDirectionSign:" + Conver16To10(glCdr.EnterDirectionSign).ToString());
+                //Console.WriteLine("BillingType:" + Conver16To10(glCdr.BillingType).ToString());
+                //Console.WriteLine("FreeOCharge:" + Conver16To10(glCdr.FreeOCharge).ToString());
+                //Console.WriteLine("StationOrNewServiceType:" + Conver16To10(glCdr.StationOrNewServiceType).ToString());
+                //Console.WriteLine("CallerAndCalleeAddress:" + Conver16To10(glCdr.CallerAndCalleeAddress).ToString());
+
+
+                //Console.Write("CalleeNumber 2421:");
+
+                //var CalleeNumber = "";
+                //for (var i = 0; i < 4; i++)
+                //{
+                //    var str = Conver16To2Left2(glCdr.CalleeNumber[i]);
+
+                //    CalleeNumber += ConvertBCDToInt2(str.Substring(0, 4); 2).ToString();
+                //    CalleeNumber += ConvertBCDToInt2(str.Substring(3, 4); 2).ToString();
+
+                //}
+                //Console.WriteLine(CalleeNumber);
+
+                //Console.WriteLine();
+
+                //Console.WriteLine("CallerUserType:" + Conver16To10(glCdr.CallerUserType).ToString());
+
+                //Console.WriteLine("BillingSign:" + Conver16To10(glCdr.BillingSign).ToString());
+
+                //Console.WriteLine("CallEndDate:" + BitConverter.ToString(glCdr.CallEndDate));
+
+                //Console.WriteLine("OutTo:" + Conver16To10(glCdr.OutTo).ToString());
+
+
+                //Console.Write("Duration:");
+                //foreach (byte b in glCdr.Duration)
+                //{
+                //    // 需要确认这个是取3个的和还是？
+                //    var bstr = b.ToString("X2");
+
+                //    Console.Write(Convert.ToInt32(bstr, 16).ToString() + " ");
+                //}
+                //Console.WriteLine();
+
+
+                //Console.WriteLine("HangupReason:" + Conver16To10(glCdr.HangupReason).ToString()); //需要开处理 暂时不管 TODO
+                //Console.WriteLine("HangupTime:" + BitConverter.ToString(glCdr.HangupTime));
+
+
+                //Console.Write("CallerNumer 8421:");
+
+                //var CallerNumber = "";
+                //for (var i = 0; i < 4; i++)
+                //{
+                //    var str = Conver16To2Left2(glCdr.CallerNumer[i]);
+
+                //    CallerNumber += ConvertBCDToInt2(str.Substring(0, 4); 8).ToString();
+                //    CallerNumber += ConvertBCDToInt2(str.Substring(3, 4); 8).ToString();
+
+                //}
+                //Console.WriteLine(CallerNumber);
+
+
+                //Console.Write("CallerNumer 5421:");
+
+                //CallerNumber = "";
+                //for (var i = 0; i < 4; i++)
+                //{
+                //    var str = Conver16To2Left2(glCdr.CallerNumer[i]);
+
+                //    CallerNumber += ConvertBCDToInt2(str.Substring(0, 4); 5).ToString();
+                //    CallerNumber += ConvertBCDToInt2(str.Substring(3, 4); 5).ToString();
+
+                //}
+                //Console.WriteLine(CallerNumber);
+
+
+                //Console.Write("CallerNumer 2421:");
+
+                //CallerNumber = "";
+                //for (var i = 0; i < 4; i++)
+                //{
+                //    var str = Conver16To2Left2(glCdr.CallerNumer[i]);
+
+                //    CallerNumber += ConvertBCDToInt2(str.Substring(0, 4); 2).ToString();
+                //    CallerNumber += ConvertBCDToInt2(str.Substring(3, 4); 2).ToString();
+
+                //}
+                //Console.WriteLine(CallerNumber);
+
+
+                //Console.WriteLine("CTXCommunityNo:" + Conver16To10(glCdr.CTXCommunityNo).ToString());
+
+                //Console.WriteLine("CTXGroupNo:" + Conver16To10(glCdr.CTXGroupNo).ToString());
+
+                //Console.WriteLine("ISDNType:" + Conver16To10(glCdr.ISDNType).ToString());
+
+                //Console.WriteLine("AlternateNumber:" + Conver16To10(glCdr.AlternateNumber).ToString());
+                //Console.WriteLine("NewBusinesIdentity:" + BitConverter.ToString(glCdr.ISDNType));
+                //Console.WriteLine("UUS1:" + Conver16To10(glCdr.UUS1).ToString());
+                //Console.WriteLine("UUS2:" + Conver16To10(glCdr.UUS2).ToString());
+
+                //Console.WriteLine("BillingAddressNature:" + Conver16To10(glCdr.BillingAddressNature).ToString());
+
+
+
+                //Console.Write("BillingNumber 8421:");
+
+                //var BillingNumber = "";
+                //for (var i = 0; i < 4; i++)
+                //{
+                //    var str = Conver16To2Left2(glCdr.BillingNumber[i]);
+
+                //    BillingNumber += ConvertBCDToInt2(str.Substring(0, 4); 8).ToString();
+                //    BillingNumber += ConvertBCDToInt2(str.Substring(3, 4); 8).ToString();
+
+                //}
+                //Console.WriteLine(BillingNumber);
+
+
+                //Console.Write("BillingNumber 5421:");
+
+                //BillingNumber = "";
+                //for (var i = 0; i < 4; i++)
+                //{
+                //    var str = Conver16To2Left2(glCdr.BillingNumber[i]);
+
+                //    BillingNumber += ConvertBCDToInt2(str.Substring(0, 4); 5).ToString();
+                //    BillingNumber += ConvertBCDToInt2(str.Substring(3, 4); 5).ToString();
+
+                //}
+                //Console.WriteLine(BillingNumber);
+
+
+                //Console.Write("BillingNumber 2421:");
+
+                //BillingNumber = "";
+                //for (var i = 0; i < 4; i++)
+                //{
+                //    var str = Conver16To2Left2(glCdr.BillingNumber[i]);
+
+                //    BillingNumber += ConvertBCDToInt2(str.Substring(0, 4); 2).ToString();
+                //    BillingNumber += ConvertBCDToInt2(str.Substring(3, 4); 2).ToString();
+
+                //}
+                //Console.WriteLine(BillingNumber);
+
+                //Console.WriteLine("CallerSpecialNumber:" + BitConverter.ToString(glCdr.CallerSpecialNumber));
+                //Console.WriteLine("CalleeSpecialNumber:" + BitConverter.ToString(glCdr.CalleeSpecialNumber));
+                //Console.WriteLine("ConnectionNumberType:" + Conver16To10(glCdr.ConnectionNumberType).ToString());
+
+                //Console.Write("TakeLength:");
+                //foreach (byte b in glCdr.TakeLength)
+                //{
+                //    // 需要确认这个是取3个的和还是？
+                //    var bstr = b.ToString("X2");
+
+                //    Console.Write(Convert.ToInt32(bstr, 16).ToString() + " ");
+                //}
+                //Console.WriteLine();
+
+                //Console.WriteLine("ConnectionNnumber:" + BitConverter.ToString(glCdr.ConnectionNnumber));
+
+                //Console.WriteLine("CIC:" + BitConverter.ToString(glCdr.CIC));
+
+                //Console.WriteLine("Other:" + BitConverter.ToString(glCdr.Other));
+
+            }
+            swGl40.Close();
+            br.Close();
+            CreateInLog("高凌话单：" + glCdrFile + "处理执行完毕!");
+        }
+        /// <summary>
 		/// The main entry point for the application.
 		/// </summary>
 		[STAThread]
@@ -469,6 +816,7 @@ namespace Bill
 			
 			string pbxtype = config.IniReadValue("general","pbxtype");
             string[] jx10cdrdir = config.IniReadValue("general", "jx10cdrdir").Split(';');
+            string[] glcdrdir = config.IniReadValue("general", "gl04cdrdir").Split(';');
 
             CreateInLog("话单分析处理服务，启动成功！");
 
@@ -477,375 +825,53 @@ namespace Bill
 			//
 			// TODO: Add code to start application here
             //
-            #region 中兴话单读取
-            if (pbxtype == "zxj10")
-			{
-                
-                string lastProcessZXFileName = "";
-				while(true){
-                    try {
-                        var now = DateTime.Now;
-                        string todayZXBillFile = "JF" + now.Year.ToString() + now.Month.ToString().PadLeft(2, '0') + ".B" + now.Day.ToString().PadLeft(2, '0');
-                        for (var i = 0; i < jx10cdrdir.Length; i++)
+
+
+            #region 换单处理逻辑
+            string lastProcessZXFileName = "";
+            string lastProcessGLFileName = "";
+			while(true){
+                try {
+                    var now = DateTime.Now;
+
+                    #region 中兴话单读取
+                    string todayZXBillFile = "JF" + now.Year.ToString() + now.Month.ToString().PadLeft(2, '0') + ".B" + now.Day.ToString().PadLeft(2, '0');
+                    for (var i = 0; i < jx10cdrdir.Length; i++)
+                    {
+                        if (jx10cdrdir[i] != "" && jx10cdrdir[i] != null)
                         {
                             CreateInLog("开始中兴话单分析！话单位置:" + jx10cdrdir[i]);
                             HandleZXJx10(jx10cdrdir[i], lastProcessZXFileName, tempCdrFile, todayZXBillFile);
-                        }
-
-                        lastProcessZXFileName = todayZXBillFile; // 程序内部记住上一次处理文件名
+                        }  
                     }
-                    catch (Exception ex)
+
+                    lastProcessZXFileName = todayZXBillFile; // 程序内部记住上一次处理文件名
+                    #endregion
+
+                    #region 高凌话单读取
+                    string glCdrFile = Directory.GetCurrentDirectory() + @"\" + config.IniReadValue("general", "gl04cdrdir");
+                    string todayGLBillFile = now.Year.ToString() + now.Month.ToString().PadLeft(2, '0')  + now.Day.ToString().PadLeft(2, '0')+".cdr";
+                    for (var i = 0; i < glcdrdir.Length; i++)
                     {
-                        CreateInLog("程序错误："+ex.Message);
+                        if (glcdrdir[i] != "" && glcdrdir[i] != null)
+                        {
+                            CreateInLog("开始高凌话单分析！话单位置:" + glcdrdir[i]);
+                            HandleGL04(glcdrdir[i], lastProcessGLFileName, tempCdrFile, todayGLBillFile);
+                        }
                     }
+
+                    lastProcessGLFileName = todayGLBillFile; // 程序内部记住上一次处理文件名
+                    #endregion
+                }
+                catch (Exception ex)
+                {
+                    CreateInLog("程序错误："+ex.Message);
+                }
 					
-                    Thread.Sleep(1 * 1000 * 60);
-				
-				}
-            }
-            #endregion
-
-            #region 高凌话单读取
-            else if(pbxtype == "gl04")
-			{
-				string gl40BillFile = Directory.GetCurrentDirectory() + @"\test_ngl04.txt";
-						
-				FileStream fsGl40 = new FileStream(gl40BillFile, FileMode.Create, FileAccess.Write);
-				fsGl40.SetLength(0);
-				StreamWriter swGl40 = new StreamWriter(fsGl40, System.Text.Encoding.UTF8);
-
-
-				string glCdrFile = Directory.GetCurrentDirectory() +@"\" +config.IniReadValue("general","testglcdr");
-
-				if (!File.Exists(glCdrFile))
-				{
-					Console.WriteLine("话单文件不存在:"+glCdrFile);
-					Console.WriteLine("请按回车键结束程序！");
-			
-					Console.ReadLine();
-					System.Environment.Exit(0);
-				}
-
-
-				BinaryReader br = new BinaryReader(new FileStream(glCdrFile, FileMode.Open));
-				Console.WriteLine("开始解析高凌NGL04话单:"+glCdrFile);
-				Console.WriteLine("总记录数:" + (br.BaseStream.Length / 96).ToString());
-
-				while (br.BaseStream.Position < br.BaseStream.Length)
-				{
-
-					// Console.WriteLine("Remain Bytes:"+ (br.BaseStream.Length - br.BaseStream.Position).ToString());
-
-					GaoLingCDR glCdr = new GaoLingCDR();
-                    
-					glCdr.LetterCode = br.ReadBytes(1);
-					glCdr.ModuleNumber = br.ReadBytes(1);
-					glCdr.CallCategory = br.ReadBytes(1);
-					glCdr.CallerAreaCode = br.ReadBytes(1);
-					glCdr.CalleeAreaCode = br.ReadBytes(1);
-					glCdr.EnterDirectionSign = br.ReadBytes(1); // 入局局向号/路由号
-					glCdr.BillingType = br.ReadBytes(1); //
-					glCdr.FreeOCharge = br.ReadBytes(1);
-					glCdr.StationOrNewServiceType = br.ReadBytes(1);
-					glCdr.CallerAndCalleeAddress = br.ReadBytes(1);
-					glCdr.CalleeNumber = br.ReadBytes(12);
-					glCdr.CallerUserType = br.ReadBytes(1);
-					glCdr.BillingSign = br.ReadBytes(1);
-					glCdr.CallEndDate = br.ReadBytes(4);
-					glCdr.OutTo = br.ReadBytes(1);
-					glCdr.Duration = br.ReadBytes(3);
-					glCdr.HangupReason = br.ReadBytes(1);
-					glCdr.HangupTime = br.ReadBytes(3);
-					glCdr.CallerNumer = br.ReadBytes(10);
-					glCdr.CTXCommunityNo = br.ReadBytes(1);
-					glCdr.CTXGroupNo = br.ReadBytes(1);
-					glCdr.ISDNType = br.ReadBytes(1);
-					glCdr.AlternateNumber = br.ReadBytes(1);
-
-					glCdr.NewBusinesIdentity = br.ReadBytes(7);
-					glCdr.UUS1 = br.ReadBytes(1);
-					glCdr.UUS2 = br.ReadBytes(1);
-					glCdr.BillingAddressNature = br.ReadBytes(1);
-					glCdr.BillingNumber = br.ReadBytes(10);
-					glCdr.CallerSpecialNumber = br.ReadBytes(4);
-					glCdr.CalleeSpecialNumber = br.ReadBytes(4);
-					glCdr.ConnectionNumberType = br.ReadBytes(1);
-
-					glCdr.TakeLength = br.ReadBytes(3);
-					glCdr.ConnectionNnumber = br.ReadBytes(8);
-					glCdr.CIC = br.ReadBytes(3);
-					glCdr.Other = br.ReadBytes(3); //文档记录有错误，应该是93-95
-
-                    
-
-					//Convert.ToInt32("28de1212", 16);
-					//Console.WriteLine(Convert.ToInt32(BitConverter.ToString(glCdr.CallCategory); 16));
-
-					string callEndStr = BitConverter.ToString(glCdr.CallEndDate);
-					string[] callEndStrs = callEndStr.Split('-');
-					callEndStr = callEndStrs[0]+callEndStrs[1]+"-"+callEndStrs[2]+"-"+callEndStrs[3];
-
-					string hangupTimeStr = BitConverter.ToString(glCdr.HangupTime);
-					string[] hangupTimeStrs = hangupTimeStr.Split('-');
-					hangupTimeStr = hangupTimeStrs[0].PadLeft(2,'0')+":"+hangupTimeStrs[1].PadLeft(2,'0')+":"+ Convert.ToInt32(hangupTimeStrs[2], 16).ToString().PadLeft(2,'0');
-
-
-
-					DateTime ngl04HangupTime = Convert.ToDateTime(callEndStr+" "+hangupTimeStr);
-                    
-					int durationIndex = 0;
-					int[] durationMeight = new int[3]{1000000,1000,1};
-					int duration = 0;
-
-					foreach (byte b in glCdr.Duration)
-					{
-						// 需要确认这个是取3个的和还是？
-						string bstr = b.ToString("X2");
-						int bint = Convert.ToInt32(bstr, 16);
-						duration += durationMeight[durationIndex] * bint;
-						durationIndex++;
-
-                        
-					}
-					swGl40.Write(" StartTime:" +ngl04HangupTime.AddSeconds(0-duration).ToString("yyyy-MM-dd HH:mm:ss"));
-					swGl40.Write(" HangupTime:"+ngl04HangupTime.ToString("yyyy-MM-dd HH:mm:ss"));
-
-					swGl40.Write(" Duration:");
-					swGl40.Write(duration.ToString());
-
-					swGl40.Write(" CallerNumer Original:");
-					swGl40.Write(BitConverter.ToString(glCdr.CallerNumer));
-
-
-					swGl40.Write(" CallerNumer:");
-
-					string CallerNumber = "";
-					for (int i = 0; i < glCdr.CallerNumer.Length; i++)
-					{
-						string str = Conver16To2Right2(glCdr.CallerNumer[i],'0');
-						if(str == "00000000")
-						{
-							break;
-						}
-
-						CallerNumber += ConverGLBCD(str.Substring(0, 4), 8);
-						CallerNumber += ConverGLBCD(str.Substring(4, 4), 8);
-
-					}
-					swGl40.Write(CallerNumber);
-
-
-
-					swGl40.Write(" CalleeNumber Original:");
-					swGl40.Write(BitConverter.ToString(glCdr.CalleeNumber));
-
-					swGl40.Write(" CalleeNumber:");
-
-					string CalleeNumber = "";
-					for (int i = 0; i < glCdr.CalleeNumber.Length; i++)
-					{
-						string str = Conver16To2Right2(glCdr.CalleeNumber[i],'0');
-						if(str == "00000000")
-						{
-							break;
-						}
-
-						CalleeNumber += ConverGLBCD(str.Substring(0, 4), 8);
-						CalleeNumber += ConverGLBCD(str.Substring(4, 4), 8);
-
-					}
-					swGl40.Write(CalleeNumber);
-					swGl40.WriteLine();
-
-
-
-
-					// 下面是测试会用到的日志输出 不要删除
-
-					//Console.WriteLine("LetterCode:" + Conver16To10(glCdr.LetterCode).ToString());
-					//Console.WriteLine("ModuleNumber:" + Conver16To10(glCdr.ModuleNumber).ToString());
-					//Console.WriteLine("CallCategory:" + Conver16To10(glCdr.CallCategory).ToString());
-					//Console.WriteLine("CallerAreaCode:" + Conver16To10(glCdr.CallerAreaCode).ToString());
-					//Console.WriteLine("CallerAreaCode:" + Conver16To10(glCdr.CallerAreaCode).ToString());
-					//Console.WriteLine("CalleeAreaCode:" + Conver16To10(glCdr.CalleeAreaCode).ToString());
-					//Console.WriteLine("EnterDirectionSign:" + Conver16To10(glCdr.EnterDirectionSign).ToString());
-					//Console.WriteLine("BillingType:" + Conver16To10(glCdr.BillingType).ToString());
-					//Console.WriteLine("FreeOCharge:" + Conver16To10(glCdr.FreeOCharge).ToString());
-					//Console.WriteLine("StationOrNewServiceType:" + Conver16To10(glCdr.StationOrNewServiceType).ToString());
-					//Console.WriteLine("CallerAndCalleeAddress:" + Conver16To10(glCdr.CallerAndCalleeAddress).ToString());
-
-
-					//Console.Write("CalleeNumber 2421:");
-
-					//var CalleeNumber = "";
-					//for (var i = 0; i < 4; i++)
-					//{
-					//    var str = Conver16To2Left2(glCdr.CalleeNumber[i]);
-
-					//    CalleeNumber += ConvertBCDToInt2(str.Substring(0, 4); 2).ToString();
-					//    CalleeNumber += ConvertBCDToInt2(str.Substring(3, 4); 2).ToString();
-
-					//}
-					//Console.WriteLine(CalleeNumber);
-
-					//Console.WriteLine();
-
-					//Console.WriteLine("CallerUserType:" + Conver16To10(glCdr.CallerUserType).ToString());
-
-					//Console.WriteLine("BillingSign:" + Conver16To10(glCdr.BillingSign).ToString());
-
-					//Console.WriteLine("CallEndDate:" + BitConverter.ToString(glCdr.CallEndDate));
-
-					//Console.WriteLine("OutTo:" + Conver16To10(glCdr.OutTo).ToString());
-
-
-					//Console.Write("Duration:");
-					//foreach (byte b in glCdr.Duration)
-					//{
-					//    // 需要确认这个是取3个的和还是？
-					//    var bstr = b.ToString("X2");
-
-					//    Console.Write(Convert.ToInt32(bstr, 16).ToString() + " ");
-					//}
-					//Console.WriteLine();
-
-
-					//Console.WriteLine("HangupReason:" + Conver16To10(glCdr.HangupReason).ToString()); //需要开处理 暂时不管 TODO
-					//Console.WriteLine("HangupTime:" + BitConverter.ToString(glCdr.HangupTime));
-
-
-					//Console.Write("CallerNumer 8421:");
-
-					//var CallerNumber = "";
-					//for (var i = 0; i < 4; i++)
-					//{
-					//    var str = Conver16To2Left2(glCdr.CallerNumer[i]);
-
-					//    CallerNumber += ConvertBCDToInt2(str.Substring(0, 4); 8).ToString();
-					//    CallerNumber += ConvertBCDToInt2(str.Substring(3, 4); 8).ToString();
-
-					//}
-					//Console.WriteLine(CallerNumber);
-
-
-					//Console.Write("CallerNumer 5421:");
-
-					//CallerNumber = "";
-					//for (var i = 0; i < 4; i++)
-					//{
-					//    var str = Conver16To2Left2(glCdr.CallerNumer[i]);
-
-					//    CallerNumber += ConvertBCDToInt2(str.Substring(0, 4); 5).ToString();
-					//    CallerNumber += ConvertBCDToInt2(str.Substring(3, 4); 5).ToString();
-
-					//}
-					//Console.WriteLine(CallerNumber);
-
-
-					//Console.Write("CallerNumer 2421:");
-
-					//CallerNumber = "";
-					//for (var i = 0; i < 4; i++)
-					//{
-					//    var str = Conver16To2Left2(glCdr.CallerNumer[i]);
-
-					//    CallerNumber += ConvertBCDToInt2(str.Substring(0, 4); 2).ToString();
-					//    CallerNumber += ConvertBCDToInt2(str.Substring(3, 4); 2).ToString();
-
-					//}
-					//Console.WriteLine(CallerNumber);
-
-
-					//Console.WriteLine("CTXCommunityNo:" + Conver16To10(glCdr.CTXCommunityNo).ToString());
-
-					//Console.WriteLine("CTXGroupNo:" + Conver16To10(glCdr.CTXGroupNo).ToString());
-
-					//Console.WriteLine("ISDNType:" + Conver16To10(glCdr.ISDNType).ToString());
-
-					//Console.WriteLine("AlternateNumber:" + Conver16To10(glCdr.AlternateNumber).ToString());
-					//Console.WriteLine("NewBusinesIdentity:" + BitConverter.ToString(glCdr.ISDNType));
-					//Console.WriteLine("UUS1:" + Conver16To10(glCdr.UUS1).ToString());
-					//Console.WriteLine("UUS2:" + Conver16To10(glCdr.UUS2).ToString());
-
-					//Console.WriteLine("BillingAddressNature:" + Conver16To10(glCdr.BillingAddressNature).ToString());
-
-
-
-					//Console.Write("BillingNumber 8421:");
-
-					//var BillingNumber = "";
-					//for (var i = 0; i < 4; i++)
-					//{
-					//    var str = Conver16To2Left2(glCdr.BillingNumber[i]);
-
-					//    BillingNumber += ConvertBCDToInt2(str.Substring(0, 4); 8).ToString();
-					//    BillingNumber += ConvertBCDToInt2(str.Substring(3, 4); 8).ToString();
-
-					//}
-					//Console.WriteLine(BillingNumber);
-
-
-					//Console.Write("BillingNumber 5421:");
-
-					//BillingNumber = "";
-					//for (var i = 0; i < 4; i++)
-					//{
-					//    var str = Conver16To2Left2(glCdr.BillingNumber[i]);
-
-					//    BillingNumber += ConvertBCDToInt2(str.Substring(0, 4); 5).ToString();
-					//    BillingNumber += ConvertBCDToInt2(str.Substring(3, 4); 5).ToString();
-
-					//}
-					//Console.WriteLine(BillingNumber);
-
-
-					//Console.Write("BillingNumber 2421:");
-
-					//BillingNumber = "";
-					//for (var i = 0; i < 4; i++)
-					//{
-					//    var str = Conver16To2Left2(glCdr.BillingNumber[i]);
-
-					//    BillingNumber += ConvertBCDToInt2(str.Substring(0, 4); 2).ToString();
-					//    BillingNumber += ConvertBCDToInt2(str.Substring(3, 4); 2).ToString();
-
-					//}
-					//Console.WriteLine(BillingNumber);
-
-					//Console.WriteLine("CallerSpecialNumber:" + BitConverter.ToString(glCdr.CallerSpecialNumber));
-					//Console.WriteLine("CalleeSpecialNumber:" + BitConverter.ToString(glCdr.CalleeSpecialNumber));
-					//Console.WriteLine("ConnectionNumberType:" + Conver16To10(glCdr.ConnectionNumberType).ToString());
-
-					//Console.Write("TakeLength:");
-					//foreach (byte b in glCdr.TakeLength)
-					//{
-					//    // 需要确认这个是取3个的和还是？
-					//    var bstr = b.ToString("X2");
-
-					//    Console.Write(Convert.ToInt32(bstr, 16).ToString() + " ");
-					//}
-					//Console.WriteLine();
-
-					//Console.WriteLine("ConnectionNnumber:" + BitConverter.ToString(glCdr.ConnectionNnumber));
-
-					//Console.WriteLine("CIC:" + BitConverter.ToString(glCdr.CIC));
-
-					//Console.WriteLine("Other:" + BitConverter.ToString(glCdr.Other));
-
-
-
-
-
-				}
-				swGl40.Close();
-				br.Close();
-
+                Thread.Sleep(1 * 1000 * 60);
 
             }
             #endregion
-            
-            Console.WriteLine("请按回车键结束程序！");
-			Console.ReadLine();
 		}
 	}
 }
