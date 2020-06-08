@@ -102,9 +102,11 @@
     <Compile Include="IniFile.cs">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="ListsConvertToJson.cs" />
     <Compile Include="Main.cs">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="SendCDR.cs" />
     <Compile Include="UtilClass.cs">
       <SubType>Code</SubType>
     </Compile>

@@ -10,6 +10,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 
 
+
 namespace Bill
 {
 	/// <summary>
@@ -245,18 +246,24 @@ namespace Bill
             return false; 
         } 
         #endregion
-        public static void Post(string url){
+        public static void Post(string url, string jsonParam = "")
+        {
 			try
 			{		
 				HttpWebRequest request = (HttpWebRequest)WebRequest.Create(url);
 
-				string postData = "thing1=hello";
-				postData += "&thing2=world";
+				//string postData = "thing1=hello";
+				//postData += "&thing2=world";
+                //request.ContentType = "application/x-www-form-urlencoded";
 
-				Byte[] data = Encoding.ASCII.GetBytes(postData);
+                // json参数
+                // string jsonParam = "{ phonenumber:\"18665885202\",pwd:\"tsp\"}";
+                // request.ContentType = "application/json;charset=UTF-8";
 
-				request.Method = "POST";
-				request.ContentType = "application/x-www-form-urlencoded";
+                Byte[] data = Encoding.ASCII.GetBytes(jsonParam);
+
+				request.Method = "POST";		
+                request.ContentType = "application/json;charset=UTF-8";
 				request.ContentLength = data.Length;
 				request.Timeout = 60 * 1000;
 
@@ -269,6 +276,9 @@ namespace Bill
 
 				string responseString = new StreamReader(response.GetResponseStream()).ReadToEnd();
 				Console.WriteLine("Post ResponseString:"+ responseString);
+
+               
+
 			}
 			catch (Exception e) 
 			{
@@ -278,7 +288,7 @@ namespace Bill
 
 
         // 中兴JX10话单处理
-        public static void HandleZXJx10(string cdrdir,string lastProcessFileName, string tempCdrFile,string todayBillFile)
+        public static void HandleZXJx10(string cdrdir,string lastProcessFileName, string tempCdrFile,string todayBillFile,int startRecord=1)
         {
 
             string zxCdrFile = cdrdir + @"\" + todayBillFile;
@@ -289,17 +299,17 @@ namespace Bill
                 zxCdrFile = cdrdir + @"\" + lastProcessFileName;
             }
 
-            string zxj10BillFile = Directory.GetCurrentDirectory() + @"\test_zxj10.txt";
+            //string zxj10BillFile = Directory.GetCurrentDirectory() + @"\test_zxj10.txt";
 
             File.Delete(tempCdrFile);
             File.Copy(zxCdrFile, tempCdrFile);
             Console.WriteLine("{0} copied to {1}", zxCdrFile, tempCdrFile);
 
 
-            FileStream fsZxj10 = new FileStream(zxj10BillFile, FileMode.Create, FileAccess.Write);
-            fsZxj10.SetLength(0);
+            //FileStream fsZxj10 = new FileStream(zxj10BillFile, FileMode.Create, FileAccess.Write);
+            //fsZxj10.SetLength(0);
 
-            StreamWriter swZxj10 = new StreamWriter(fsZxj10, System.Text.Encoding.UTF8);
+            //StreamWriter swZxj10 = new StreamWriter(fsZxj10, System.Text.Encoding.UTF8);
 
             if (!File.Exists(tempCdrFile))
             {
@@ -313,13 +323,19 @@ namespace Bill
 
             BinaryReader zxbr = new BinaryReader(new FileStream(tempCdrFile, FileMode.Open,FileAccess.Read));
             CreateInLog("开始解析中兴话单:" + zxCdrFile);
-            CreateInLog("总记录数:" + (zxbr.BaseStream.Length / 123).ToString());
+            CreateInLog("总记录数:" + (zxbr.BaseStream.Length / 123 - 1).ToString());
             DateTime ZXTime = new DateTime(1994, 1, 1);
+         
+
+            zxbr.ReadBytes(startRecord * 123);// 过滤已经读取过的记录
+
+            List<object> sendCdrs = new List<object>(); // 记录收集到的记录数，当记录数=20时，发送一次post并归零继续处理
 
             while (zxbr.BaseStream.Position < zxbr.BaseStream.Length)
             {
                 //Console.WriteLine("Remain Bytes:" + (zxbr.BaseStream.Length - zxbr.BaseStream.Position).ToString());
                 ZXJX10CDR zxCdr = new ZXJX10CDR();
+                SendCDR sendCdr = new SendCDR();
 
                 zxCdr.RecordType = zxbr.ReadBytes(1);
                 zxCdr.PartRecordID = zxbr.ReadBytes(1);
@@ -361,7 +377,8 @@ namespace Bill
                 DateTime newDate = ZXTime.AddSeconds(startSec);
                 // 真尼玛坑  为什么要反转下字符串
 
-                swZxj10.Write("StartTime:" + newDate.ToString("yyyy-MM-dd HH:mm:ss"));
+                //swZxj10.Write("StartTime:" + newDate.ToString("yyyy-MM-dd HH:mm:ss"));
+                sendCdr.START_TIME = newDate.ToString("yyyy-MM-dd HH:mm:ss");
 
 
                 string endStr = BitConverter.ToString(zxCdr.EndTime);
@@ -369,16 +386,8 @@ namespace Bill
                 string endStrRevert = endStrs[3] + endStrs[2] + endStrs[1] + endStrs[0];
                 long endSec = Convert.ToInt64(endStrRevert, 16);
                 newDate = ZXTime.AddSeconds(endSec);
-
-                swZxj10.Write(" EndTime:" + newDate.ToString("yyyy-MM-dd HH:mm:ss"));
-
-                swZxj10.Write(" Duration:" + (endSec - startSec).ToString());
-
-                // swZxj10.Write(" CallerNumer Original:");
-                // swZxj10.Write(BitConverter.ToString(zxCdr.CallerNumber));
-
-
-                swZxj10.Write(" CallerNumer:");
+                sendCdr.END_TIME = newDate.ToString("yyyy-MM-dd HH:mm:ss");
+                sendCdr.DURATION = endSec - startSec;
 
                 string CallerNumber = "";
                 for (int i = 0; i < zxCdr.CallerNumber.Length; i++)
@@ -394,14 +403,8 @@ namespace Bill
                     CallerNumber += ConvertZXBCD(str.Substring(0, 4), 8);
 
                 }
-                swZxj10.Write(CallerNumber);
-
-
-
-                // swZxj10.Write(" CalleeNumer Original:");
-                // swZxj10.Write(BitConverter.ToString(zxCdr.CalleeNumber));
-
-                swZxj10.Write(" CalleeNumber:");
+                
+                sendCdr.CALLING_NUMBER = CallerNumber;
 
                 string CalleeNumber = "";
                 for (int i = 0; i < zxCdr.CalleeNumber.Length; i++)
@@ -416,14 +419,25 @@ namespace Bill
                     CalleeNumber += ConvertZXBCD(str.Substring(0, 4), 8);
 
                 }
-                swZxj10.Write(CalleeNumber);
-                swZxj10.WriteLine();
+                sendCdr.CALLED_NUMBER = CalleeNumber;
 
-
+                sendCdrs.Add(sendCdr);
+                if (sendCdrs.Count >= 20)
+                {
+                    // TODO do post
+                    ListsConvertToJson t = new ListsConvertToJson();
+                    string json = t.ConvertJson(sendCdrs, "SendCDR");
+                    Post("http://10.211.55.2:8080/post", json);
+                    Thread.Sleep(1 * 1000 * 2);
+                    sendCdrs = new List<object>();// 重新来过
+                }
             }
-            swZxj10.Close();
+        
             zxbr.Close();
 
+            ListsConvertToJson t1 = new ListsConvertToJson();
+            string jsonParams = t1.ConvertJson(sendCdrs, "SendCDR");
+            Post("http://10.211.55.2:8080/post", jsonParams);
 
             CreateInLog("中兴话单：" + zxCdrFile + "处理执行完毕!");
         }
