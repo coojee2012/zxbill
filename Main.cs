@@ -8,6 +8,7 @@ using System.Threading;
 using System.Collections.Generic;
 
 using System.Diagnostics;
+using Newtonsoft.Json;
 
 
 
@@ -246,7 +247,12 @@ namespace Bill
             return false; 
         } 
         #endregion
-        public static void Post(string url, string jsonParam = "")
+
+        public static object JsonToObject(string jsonString, object obj)
+        {
+            return JsonConvert.DeserializeObject(jsonString, obj.GetType());
+        }
+        public static bool Post(string url, string jsonParam = "")
         {
 			try
 			{		
@@ -275,29 +281,35 @@ namespace Bill
 				WebResponse response = (HttpWebResponse)request.GetResponse();
 
 				string responseString = new StreamReader(response.GetResponseStream()).ReadToEnd();
-				Console.WriteLine("Post ResponseString:"+ responseString);
+
+                PostResponse postResponse = (PostResponse)JsonToObject(responseString, new PostResponse());
+
+                if (postResponse.Code == 200)
+                {
+                    return true;
+                }
+                else
+                {
+                    CreateInLog("Post话单请求返回错误:" + postResponse.Message);
+                    return false;
+                }
 
                
 
 			}
 			catch (Exception e) 
 			{
-				Console.WriteLine("Generic Exception Handler: {0}", e.ToString());
+                CreateInLog("Post Exception: "+ e.ToString());
+                return false;
 			}
 		}
 
 
         // 中兴JX10话单处理
-        public static void HandleZXJx10(string cdrdir,string lastProcessFileName, string tempCdrFile,string todayBillFile,int startRecord=1)
+        public static int HandleZXJx10(string url,string zxCdrFile, string tempCdrFile, int startRecord = 1)
         {
-
-            string zxCdrFile = cdrdir + @"\" + todayBillFile;
-
-            // 日期变更前最后处理一次前次文件
-            if (lastProcessFileName != "" && todayBillFile != lastProcessFileName && File.Exists(zxCdrFile))
-            {
-                zxCdrFile = cdrdir + @"\" + lastProcessFileName;
-            }
+            int postCount = 0; //记录post的记录数
+           
 
             //string zxj10BillFile = Directory.GetCurrentDirectory() + @"\test_zxj10.txt";
 
@@ -318,12 +330,13 @@ namespace Bill
 
                 //Console.ReadLine();
                 //Environment.Exit(0);
-                return;
+                return 0;
             }
 
             BinaryReader zxbr = new BinaryReader(new FileStream(tempCdrFile, FileMode.Open,FileAccess.Read));
             CreateInLog("开始解析中兴话单:" + zxCdrFile);
             CreateInLog("总记录数:" + (zxbr.BaseStream.Length / 123 - 1).ToString());
+            CreateInLog("已经处理:" + (startRecord-1).ToString());
             DateTime ZXTime = new DateTime(1994, 1, 1);
          
 
@@ -370,6 +383,23 @@ namespace Bill
 
 
                 // = Convert.ToInt32("10", 16)
+                //Console.WriteLine(BitConverter.ToString(zxCdr.IncomingTrunkGroup));
+                //Console.WriteLine(BitConverter.ToString(zxCdr.OutgoingTrunkGroup));
+
+
+                sendCdr.TYPE = Conver16To10(zxCdr.ServiceCategory);
+
+
+                string incomingTrunkGroupStr = BitConverter.ToString(zxCdr.IncomingTrunkGroup).Replace("-","");
+                string outgoingTrunkGroupStr = BitConverter.ToString(zxCdr.OutgoingTrunkGroup).Replace("-","");
+                sendCdr.INCOMING_BUREAU = Convert.ToInt32(incomingTrunkGroupStr, 16);
+                sendCdr.OUT_BUREAU = Convert.ToInt32(outgoingTrunkGroupStr, 16);
+
+
+                string callProperties = Conver16To2Right2(zxCdr.CallProperties[0], '0');
+                sendCdr.ISFREE = Convert.ToInt32(callProperties.Substring(5, 1));
+                sendCdr.BILLING_LOGO = Convert.ToInt32(callProperties.Substring(3, 1));
+
                 string startStr = BitConverter.ToString(zxCdr.StartTime);
                 string[] startStrs = startStr.Split('-');
                 string startStrRevert = startStrs[3] + startStrs[2] + startStrs[1] + startStrs[0];
@@ -386,6 +416,7 @@ namespace Bill
                 string endStrRevert = endStrs[3] + endStrs[2] + endStrs[1] + endStrs[0];
                 long endSec = Convert.ToInt64(endStrRevert, 16);
                 newDate = ZXTime.AddSeconds(endSec);
+
                 sendCdr.END_TIME = newDate.ToString("yyyy-MM-dd HH:mm:ss");
                 sendCdr.DURATION = endSec - startSec;
 
@@ -421,15 +452,27 @@ namespace Bill
                 }
                 sendCdr.CALLED_NUMBER = CalleeNumber;
 
+                sendCdr.BILLING_BUNBER = sendCdr.BILLING_LOGO == 0 ? sendCdr.CALLING_NUMBER : sendCdr.CALLED_NUMBER;
+
                 sendCdrs.Add(sendCdr);
                 if (sendCdrs.Count >= 20)
                 {
                     // TODO do post
                     ListsConvertToJson t = new ListsConvertToJson();
                     string json = t.ConvertJson(sendCdrs, "SendCDR");
-                    Post("http://10.211.55.2:8080/post", json);
-                    Thread.Sleep(1 * 1000 * 2);
-                    sendCdrs = new List<object>();// 重新来过
+                    if (Post(url, json))
+                    {
+                        Thread.Sleep(1 * 1000 * 2);
+                        postCount += sendCdrs.Count;
+                        CreateInLog("本次成功处理记录:" + postCount.ToString());
+                        sendCdrs = new List<object>();// 重新来过
+                    }
+                    else
+                    {
+                        sendCdrs = new List<object>();
+                        break;
+                    }
+                    
                 }
             }
         
@@ -437,9 +480,12 @@ namespace Bill
 
             ListsConvertToJson t1 = new ListsConvertToJson();
             string jsonParams = t1.ConvertJson(sendCdrs, "SendCDR");
-            Post("http://10.211.55.2:8080/post", jsonParams);
-
-            CreateInLog("中兴话单：" + zxCdrFile + "处理执行完毕!");
+            if (Post(url, jsonParams))
+            {
+                postCount += sendCdrs.Count;
+            }
+            CreateInLog("中兴话单：" + zxCdrFile + "本次处理执行完毕!合计处理："+postCount.ToString()+"条！");
+            return postCount;
         }
 		
         
@@ -827,14 +873,14 @@ namespace Bill
 
 			IniFile config = new IniFile(configPath);
 			//string test = config.IniReadValue("db","host");
-			
+
+            string apiUri = config.IniReadValue("general", "apiUri");
 			string pbxtype = config.IniReadValue("general","pbxtype");
             string[] jx10cdrdir = config.IniReadValue("general", "jx10cdrdir").Split(';');
+            int[] jx10PostCounts = new int[jx10cdrdir.Length];
             string[] glcdrdir = config.IniReadValue("general", "gl04cdrdir").Split(';');
 
             CreateInLog("话单分析处理服务，启动成功！");
-
-//			Post("http://vv.video.qq.com/checktime?otype=json");
 
 			//
 			// TODO: Add code to start application here
@@ -842,7 +888,7 @@ namespace Bill
 
 
             #region 换单处理逻辑
-            string lastProcessZXFileName = "";
+            string[] lastProcessZXFileName = new string[jx10cdrdir.Length];
             string lastProcessGLFileName = "";
 			while(true){
                 try {
@@ -855,11 +901,35 @@ namespace Bill
                         if (jx10cdrdir[i] != "" && jx10cdrdir[i] != null)
                         {
                             CreateInLog("开始中兴话单分析！话单位置:" + jx10cdrdir[i]);
-                            HandleZXJx10(jx10cdrdir[i], lastProcessZXFileName, tempCdrFile, todayZXBillFile);
-                        }  
+                            bool isNextDay = false;
+
+                            string zxCdrFile = jx10cdrdir[i] + @"\" + todayZXBillFile;
+
+                            // 日期变更前最后处理一次前次文件
+                            if (lastProcessZXFileName[i] != null && todayZXBillFile != lastProcessZXFileName[i] && File.Exists(zxCdrFile))
+                            {
+                                zxCdrFile = jx10cdrdir[i] + @"\" + lastProcessZXFileName[i];
+                                isNextDay = true;
+                            }
+
+                            int doneRecords = HandleZXJx10(apiUri,zxCdrFile, tempCdrFile, jx10PostCounts[i] + 1);
+                           
+                            if (isNextDay)
+                            {
+                                jx10PostCounts[i] = 0;
+                                lastProcessZXFileName[i] = null;// 这个没必要
+                                CreateInLog("=====中兴话单全部分析完毕：" + zxCdrFile+"=====");
+                            }
+                            else
+                            {
+                                jx10PostCounts[i] = jx10PostCounts[i] + doneRecords;
+                                lastProcessZXFileName[i] = todayZXBillFile;// 程序内部记住上一次处理文件名
+                            }
+                            
+                        }
                     }
 
-                    lastProcessZXFileName = todayZXBillFile; // 程序内部记住上一次处理文件名
+                   
                     #endregion
 
                     #region 高凌话单读取
