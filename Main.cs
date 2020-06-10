@@ -165,6 +165,8 @@ namespace Bill
 
         static void DisbleClosebtn()
         {
+            //线程睡眠，确保closebtn中能够正常FindWindow，否则有时会Find失败。。
+            Thread.Sleep(100);
             IntPtr windowHandle = FindWindow(null, VERSION);
             IntPtr closeMenu = GetSystemMenu(windowHandle, IntPtr.Zero);
             uint SC_CLOSE = 0xF060;
@@ -282,6 +284,8 @@ namespace Bill
 
 				string responseString = new StreamReader(response.GetResponseStream()).ReadToEnd();
 
+                CreateInLog("PostReturnString:" + responseString);
+
                 PostResponse postResponse = (PostResponse)JsonToObject(responseString, new PostResponse());
 
                 if (postResponse.Code == 200)
@@ -304,7 +308,42 @@ namespace Bill
 			}
 		}
 
+        public static void RecordLock(DateTime doneTime, string fileName, string content)
+        {
+            try
+            {
+                FileStream fs = new FileStream(fileName, FileMode.Create, FileAccess.Write);
+                fs.SetLength(0);
+                StreamWriter sw = new StreamWriter(fs, System.Text.Encoding.UTF8);
+                sw.Write(doneTime.ToString("yyyy-MM-dd HH:mm:ss") + "," + content);
+                sw.Close();
+            }
+            catch (Exception ex)
+            {
+                CreateInLog("记录LockFile:"+fileName+"时发生错误：" + ex.Message);
+            }          
+        }
 
+        public static string GetLockContent(string fileName)
+        {
+            try
+            {
+                string[] lines = System.IO.File.ReadAllLines(fileName);
+                return lines[0];
+            }
+            catch (Exception ex)
+            {
+                CreateInLog("获取LockFile:" + fileName + "时发生错误：" + ex.Message);
+                return String.Empty ;
+            }
+        }
+        private static int DateDiff(DateTime dateStart, DateTime dateEnd)
+        {
+            DateTime start = Convert.ToDateTime(dateStart.ToShortDateString());
+            DateTime end = Convert.ToDateTime(dateEnd.ToShortDateString());
+            TimeSpan sp = end.Subtract(start);
+            return sp.Days;
+        }
         // 中兴JX10话单处理
         public static int HandleZXJx10(string url,string zxCdrFile, string tempCdrFile, int startRecord = 1)
         {
@@ -473,6 +512,12 @@ namespace Bill
                         break;
                     }
                     
+                }
+
+                bool DEBUG = true;
+                if (DEBUG && postCount >= 100)
+                {
+                    break;
                 }
             }
         
@@ -870,14 +915,32 @@ namespace Bill
 
 			string configPath = Directory.GetCurrentDirectory() + @"\config.ini";    // 需要引用System.IO;
 			string tempCdrFile = Directory.GetCurrentDirectory() + @"\_temp_cdr"; // 临时cdr
+            string zxLockFile = Directory.GetCurrentDirectory() + @"\_zxj10_lock"; // 记录中兴zxj10当前处理进度
+            string glLockFile = Directory.GetCurrentDirectory() + @"\_gl04_lock"; //  记录高凌04当前处理进度
 
 			IniFile config = new IniFile(configPath);
 			//string test = config.IniReadValue("db","host");
 
             string apiUri = config.IniReadValue("general", "apiUri");
 			string pbxtype = config.IniReadValue("general","pbxtype");
+
+            // 加载中兴继续0话单运行时数据
             string[] jx10cdrdir = config.IniReadValue("general", "jx10cdrdir").Split(';');
             int[] jx10PostCounts = new int[jx10cdrdir.Length];
+            string lastLockContent = GetLockContent(zxLockFile);
+            string[] lastLockContents = lastLockContent.Split(',');
+            DateTime lastZxPostTime = lastLockContents.Length > 0 && !string.IsNullOrEmpty(lastLockContents[0]) ? Convert.ToDateTime(lastLockContents[0]) : DateTime.Now;
+            for (int lock_m = 0; lock_m < jx10PostCounts.Length; lock_m++)
+            {
+                if (lock_m < lastLockContents.Length && lastLockContents.Length > 1)
+                {
+                    jx10PostCounts[lock_m] = Convert.ToInt32(lastLockContents[lock_m + 1]);
+                }
+            }
+
+
+
+            // 加载高凌04话单运行时数据
             string[] glcdrdir = config.IniReadValue("general", "gl04cdrdir").Split(';');
 
             CreateInLog("话单分析处理服务，启动成功！");
@@ -893,9 +956,17 @@ namespace Bill
 			while(true){
                 try {
                     var now = DateTime.Now;
+                    
 
                     #region 中兴话单读取
-                    string todayZXBillFile = "JF" + now.Year.ToString() + now.Month.ToString().PadLeft(2, '0') + ".B" + now.Day.ToString().PadLeft(2, '0');
+                    int compZxPostTime = DateDiff(lastZxPostTime, now);
+                    if (compZxPostTime > 0)
+                    {
+                        CreateInLog("中兴话单处理发现尚有积压未处理的天数:" + compZxPostTime.ToString());
+                    }
+                    DateTime doneZxDateTime = compZxPostTime > 0 ? lastZxPostTime : now;
+                    string todayZXBillFile = "JF" + doneZxDateTime.Year.ToString() + doneZxDateTime.Month.ToString().PadLeft(2, '0') + ".B" + doneZxDateTime.Day.ToString().PadLeft(2, '0');
+
                     for (var i = 0; i < jx10cdrdir.Length; i++)
                     {
                         if (jx10cdrdir[i] != "" && jx10cdrdir[i] != null)
@@ -913,8 +984,8 @@ namespace Bill
                             }
 
                             int doneRecords = HandleZXJx10(apiUri,zxCdrFile, tempCdrFile, jx10PostCounts[i] + 1);
-                           
-                            if (isNextDay)
+
+                            if (isNextDay || compZxPostTime > 0)
                             {
                                 jx10PostCounts[i] = 0;
                                 lastProcessZXFileName[i] = null;// 这个没必要
@@ -925,11 +996,22 @@ namespace Bill
                                 jx10PostCounts[i] = jx10PostCounts[i] + doneRecords;
                                 lastProcessZXFileName[i] = todayZXBillFile;// 程序内部记住上一次处理文件名
                             }
-                            
+
+                            string lockContent = string.Empty;
+                            for (int j = 0; j < jx10PostCounts.Length; j++)
+                            {
+                                lockContent += jx10PostCounts[j];
+                                if (j < jx10PostCounts.Length - 1)
+                                    lockContent += ",";
+                            }
+                            RecordLock(doneZxDateTime,zxLockFile, lockContent);
                         }
                     }
 
-                   
+                    if (compZxPostTime > 0)
+                    {
+                        lastZxPostTime = lastZxPostTime.AddDays(1);
+                    }
                     #endregion
 
                     #region 高凌话单读取
