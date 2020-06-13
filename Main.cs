@@ -21,7 +21,8 @@ namespace Bill
 	{
 		public static int Conver16To10(byte[] b)
 		{
-			return Convert.ToInt32(BitConverter.ToString(b), 16);
+            string str =  BitConverter.ToString(b).Replace("-","");
+			return Convert.ToInt32(str, 16);
 		}
 
 		// 左对齐右边补0,默认，也可以根据需要传入补位
@@ -345,7 +346,7 @@ namespace Bill
             return sp.Days;
         }
         // 中兴JX10话单处理
-        public static int HandleZXJx10(string url,string zxCdrFile, string tempCdrFile, int startRecord = 1)
+        public static int HandleZXJx10(string url,string zxCdrFile, string tempCdrFile, int startRecord = 1,bool isDebug=false)
         {
             int postCount = 0; //记录post的记录数
            
@@ -377,9 +378,12 @@ namespace Bill
             CreateInLog("总记录数:" + (zxbr.BaseStream.Length / 123 - 1).ToString());
             CreateInLog("已经处理:" + (startRecord-1).ToString());
             DateTime ZXTime = new DateTime(1994, 1, 1);
-         
 
-            zxbr.ReadBytes(startRecord * 123);// 过滤已经读取过的记录
+            if (startRecord > 0)
+            {
+                zxbr.ReadBytes(startRecord * 123);// 过滤已经读取过的记录
+            }
+            
 
             List<object> sendCdrs = new List<object>(); // 记录收集到的记录数，当记录数=20时，发送一次post并归零继续处理
 
@@ -514,8 +518,7 @@ namespace Bill
                     
                 }
 
-                bool DEBUG = true;
-                if (DEBUG && postCount >= 100)
+                if (isDebug && postCount >= 100)
                 {
                     break;
                 }
@@ -535,29 +538,22 @@ namespace Bill
 		
         
         // 高凌GL04话单处理
-        public static void HandleGL04(string cdrdir, string lastProcessFileName, string tempCdrFile, string todayBillFile)
+        public static int HandleGL04(string url, string glCdrFile, string tempCdrFile, int startRecord = 1, bool isDebug=false)
         {
 
-
-            string glCdrFile = cdrdir + @"\" + todayBillFile;
-
-            // 日期变更前最后处理一次前次文件
-            if (lastProcessFileName != "" && todayBillFile != lastProcessFileName && File.Exists(glCdrFile))
-            {
-                glCdrFile = cdrdir + @"\" + lastProcessFileName;
-            }
-
+            int postCount = 0; //记录post的记录数
+            
+            //string glCdrFile = cdrdir + @"\" + todayBillFile;
 
             File.Delete(tempCdrFile);
             File.Copy(glCdrFile, tempCdrFile);
             Console.WriteLine("{0} copied to {1}", glCdrFile, tempCdrFile);
 
 
-            string gl40BillFile = Directory.GetCurrentDirectory() + @"\test_ngl04.txt";
-
-            FileStream fsGl40 = new FileStream(gl40BillFile, FileMode.Create, FileAccess.Write);
-            fsGl40.SetLength(0);
-            StreamWriter swGl40 = new StreamWriter(fsGl40, System.Text.Encoding.UTF8);
+            //string gl40BillFile = Directory.GetCurrentDirectory() + @"\test_ngl04.txt";
+            //FileStream fsGl40 = new FileStream(gl40BillFile, FileMode.Create, FileAccess.Write);
+            //fsGl40.SetLength(0);
+            //StreamWriter swGl40 = new StreamWriter(fsGl40, System.Text.Encoding.UTF8);
 
 
            
@@ -565,58 +561,68 @@ namespace Bill
             if (!File.Exists(glCdrFile))
             {
                 CreateInLog("高凌04话单文件不存在:" + glCdrFile);
-                return;
+                return 0;
             }
 
 
-            BinaryReader br = new BinaryReader(new FileStream(tempCdrFile, FileMode.Open,FileAccess.Read));
+            BinaryReader glbr = new BinaryReader(new FileStream(tempCdrFile, FileMode.Open,FileAccess.Read));
             CreateInLog("开始解析高凌NGL04话单:" + glCdrFile);
-            CreateInLog("总记录数:" + (br.BaseStream.Length / 96).ToString());
+            CreateInLog("总记录数:" + (glbr.BaseStream.Length / 96).ToString());
+            CreateInLog("已经处理:" + (startRecord - 1).ToString());
 
-            while (br.BaseStream.Position < br.BaseStream.Length)
+            if (startRecord > 1)
+            {
+                glbr.ReadBytes((startRecord-1) * 96);// 过滤已经读取过的记录
+            }
+            
+
+            List<object> sendCdrs = new List<object>(); // 记录收集到的记录数，当记录数=20时，发送一次post并归零继续处理
+
+            while (glbr.BaseStream.Position < glbr.BaseStream.Length)
             {
 
                 // Console.WriteLine("Remain Bytes:"+ (br.BaseStream.Length - br.BaseStream.Position).ToString());
 
                 GaoLingCDR glCdr = new GaoLingCDR();
+                SendCDR sendCdr = new SendCDR();
 
-                glCdr.LetterCode = br.ReadBytes(1);
-                glCdr.ModuleNumber = br.ReadBytes(1);
-                glCdr.CallCategory = br.ReadBytes(1);
-                glCdr.CallerAreaCode = br.ReadBytes(1);
-                glCdr.CalleeAreaCode = br.ReadBytes(1);
-                glCdr.EnterDirectionSign = br.ReadBytes(1); // 入局局向号/路由号
-                glCdr.BillingType = br.ReadBytes(1); //
-                glCdr.FreeOCharge = br.ReadBytes(1);
-                glCdr.StationOrNewServiceType = br.ReadBytes(1);
-                glCdr.CallerAndCalleeAddress = br.ReadBytes(1);
-                glCdr.CalleeNumber = br.ReadBytes(12);
-                glCdr.CallerUserType = br.ReadBytes(1);
-                glCdr.BillingSign = br.ReadBytes(1);
-                glCdr.CallEndDate = br.ReadBytes(4);
-                glCdr.OutTo = br.ReadBytes(1);
-                glCdr.Duration = br.ReadBytes(3);
-                glCdr.HangupReason = br.ReadBytes(1);
-                glCdr.HangupTime = br.ReadBytes(3);
-                glCdr.CallerNumer = br.ReadBytes(10);
-                glCdr.CTXCommunityNo = br.ReadBytes(1);
-                glCdr.CTXGroupNo = br.ReadBytes(1);
-                glCdr.ISDNType = br.ReadBytes(1);
-                glCdr.AlternateNumber = br.ReadBytes(1);
+                glCdr.LetterCode = glbr.ReadBytes(1);
+                glCdr.ModuleNumber = glbr.ReadBytes(1);
+                glCdr.CallCategory = glbr.ReadBytes(1);
+                glCdr.CallerAreaCode = glbr.ReadBytes(1);
+                glCdr.CalleeAreaCode = glbr.ReadBytes(1);
+                glCdr.EnterDirectionSign = glbr.ReadBytes(1); // 入局局向号/路由号
+                glCdr.BillingType = glbr.ReadBytes(1); //
+                glCdr.FreeOCharge = glbr.ReadBytes(1);
+                glCdr.StationOrNewServiceType = glbr.ReadBytes(1);
+                glCdr.CallerAndCalleeAddress = glbr.ReadBytes(1);
+                glCdr.CalleeNumber = glbr.ReadBytes(12);
+                glCdr.CallerUserType = glbr.ReadBytes(1);
+                glCdr.BillingSign = glbr.ReadBytes(1);
+                glCdr.CallEndDate = glbr.ReadBytes(4);
+                glCdr.OutTo = glbr.ReadBytes(1);
+                glCdr.Duration = glbr.ReadBytes(3);
+                glCdr.HangupReason = glbr.ReadBytes(1);
+                glCdr.HangupTime = glbr.ReadBytes(3);
+                glCdr.CallerNumer = glbr.ReadBytes(10);
+                glCdr.CTXCommunityNo = glbr.ReadBytes(1);
+                glCdr.CTXGroupNo = glbr.ReadBytes(1);
+                glCdr.ISDNType = glbr.ReadBytes(1);
+                glCdr.AlternateNumber = glbr.ReadBytes(1);
 
-                glCdr.NewBusinesIdentity = br.ReadBytes(7);
-                glCdr.UUS1 = br.ReadBytes(1);
-                glCdr.UUS2 = br.ReadBytes(1);
-                glCdr.BillingAddressNature = br.ReadBytes(1);
-                glCdr.BillingNumber = br.ReadBytes(10);
-                glCdr.CallerSpecialNumber = br.ReadBytes(4);
-                glCdr.CalleeSpecialNumber = br.ReadBytes(4);
-                glCdr.ConnectionNumberType = br.ReadBytes(1);
+                glCdr.NewBusinesIdentity = glbr.ReadBytes(7);
+                glCdr.UUS1 = glbr.ReadBytes(1);
+                glCdr.UUS2 = glbr.ReadBytes(1);
+                glCdr.BillingAddressNature = glbr.ReadBytes(1);
+                glCdr.BillingNumber = glbr.ReadBytes(10);
+                glCdr.CallerSpecialNumber = glbr.ReadBytes(4);
+                glCdr.CalleeSpecialNumber = glbr.ReadBytes(4);
+                glCdr.ConnectionNumberType = glbr.ReadBytes(1);
 
-                glCdr.TakeLength = br.ReadBytes(3);
-                glCdr.ConnectionNnumber = br.ReadBytes(8);
-                glCdr.CIC = br.ReadBytes(3);
-                glCdr.Other = br.ReadBytes(3); //文档记录有错误，应该是93-95
+                glCdr.TakeLength = glbr.ReadBytes(3);
+                glCdr.ConnectionNnumber = glbr.ReadBytes(8);
+                glCdr.CIC = glbr.ReadBytes(3);
+                glCdr.Other = glbr.ReadBytes(3); //文档记录有错误，应该是93-95
 
 
 
@@ -635,31 +641,38 @@ namespace Bill
 
                 DateTime ngl04HangupTime = Convert.ToDateTime(callEndStr + " " + hangupTimeStr);
 
-                int durationIndex = 0;
-                int[] durationMeight = new int[3] { 1000000, 1000, 1 };
-                int duration = 0;
 
-                foreach (byte b in glCdr.Duration)
-                {
+                //int durationIndex = 0;
+                //int[] durationMeight = new int[3] { 1000000, 1000, 1 };
+                int duration = Conver16To10(glCdr.Duration);
+
+                //Console.WriteLine("durationduration:" + Conver16To10(glCdr.Duration).ToString());
+                //foreach (byte b in glCdr.Duration)
+                //{
+                    // TODO
                     // 需要确认这个是取3个的和还是？
-                    string bstr = b.ToString("X2");
-                    int bint = Convert.ToInt32(bstr, 16);
-                    duration += durationMeight[durationIndex] * bint;
-                    durationIndex++;
+                    //string bstr = b.ToString("X2");
+                    //int bint = Convert.ToInt32(bstr, 16);
+                    //duration += durationMeight[durationIndex] * bint;
+                    //durationIndex++;
 
 
-                }
-                swGl40.Write(" StartTime:" + ngl04HangupTime.AddSeconds(0 - duration).ToString("yyyy-MM-dd HH:mm:ss"));
-                swGl40.Write(" HangupTime:" + ngl04HangupTime.ToString("yyyy-MM-dd HH:mm:ss"));
+               // }
+                sendCdr.START_TIME = ngl04HangupTime.AddSeconds(0 - duration).ToString("yyyy-MM-dd HH:mm:ss");
+                sendCdr.END_TIME = ngl04HangupTime.ToString("yyyy-MM-dd HH:mm:ss");
+                sendCdr.DURATION = duration;
 
-                swGl40.Write(" Duration:");
-                swGl40.Write(duration.ToString());
+                //swGl40.Write(" StartTime:" + ngl04HangupTime.AddSeconds(0 - duration).ToString("yyyy-MM-dd HH:mm:ss"));
+                //swGl40.Write(" HangupTime:" + ngl04HangupTime.ToString("yyyy-MM-dd HH:mm:ss"));
 
-                swGl40.Write(" CallerNumer Original:");
-                swGl40.Write(BitConverter.ToString(glCdr.CallerNumer));
+                //swGl40.Write(" Duration:");
+                //swGl40.Write(duration.ToString());
+
+                //swGl40.Write(" CallerNumer Original:");
+                //swGl40.Write(BitConverter.ToString(glCdr.CallerNumer));
 
 
-                swGl40.Write(" CallerNumer:");
+               // swGl40.Write(" CallerNumer:");
 
                 string CallerNumber = "";
                 for (int i = 0; i < glCdr.CallerNumer.Length; i++)
@@ -674,14 +687,16 @@ namespace Bill
                     CallerNumber += ConverGLBCD(str.Substring(4, 4), 8);
 
                 }
-                swGl40.Write(CallerNumber);
+                //swGl40.Write(CallerNumber);
+                sendCdr.CALLING_NUMBER = CallerNumber;
+                
 
 
 
-                swGl40.Write(" CalleeNumber Original:");
-                swGl40.Write(BitConverter.ToString(glCdr.CalleeNumber));
+                //swGl40.Write(" CalleeNumber Original:");
+                //swGl40.Write(BitConverter.ToString(glCdr.CalleeNumber));
 
-                swGl40.Write(" CalleeNumber:");
+                //swGl40.Write(" CalleeNumber:");
 
                 string CalleeNumber = "";
                 for (int i = 0; i < glCdr.CalleeNumber.Length; i++)
@@ -696,8 +711,12 @@ namespace Bill
                     CalleeNumber += ConverGLBCD(str.Substring(4, 4), 8);
 
                 }
-                swGl40.Write(CalleeNumber);
-                swGl40.WriteLine();
+                //swGl40.Write(CalleeNumber);
+                //swGl40.WriteLine();
+                sendCdr.CALLED_NUMBER = CalleeNumber;
+                sendCdr.BILLING_LOGO = 1;
+                sendCdr.BILLING_BUNBER = CallerNumber;
+              
 
 
 
@@ -707,12 +726,15 @@ namespace Bill
                 //Console.WriteLine("LetterCode:" + Conver16To10(glCdr.LetterCode).ToString());
                 //Console.WriteLine("ModuleNumber:" + Conver16To10(glCdr.ModuleNumber).ToString());
                 //Console.WriteLine("CallCategory:" + Conver16To10(glCdr.CallCategory).ToString());
+                sendCdr.TYPE = Conver16To10(glCdr.CallCategory);
                 //Console.WriteLine("CallerAreaCode:" + Conver16To10(glCdr.CallerAreaCode).ToString());
                 //Console.WriteLine("CallerAreaCode:" + Conver16To10(glCdr.CallerAreaCode).ToString());
                 //Console.WriteLine("CalleeAreaCode:" + Conver16To10(glCdr.CalleeAreaCode).ToString());
                 //Console.WriteLine("EnterDirectionSign:" + Conver16To10(glCdr.EnterDirectionSign).ToString());
-                //Console.WriteLine("BillingType:" + Conver16To10(glCdr.BillingType).ToString());
-                //Console.WriteLine("FreeOCharge:" + Conver16To10(glCdr.FreeOCharge).ToString());
+                sendCdr.INCOMING_BUREAU = Conver16To10(glCdr.EnterDirectionSign);
+               // Console.WriteLine("BillingType:" + Conver16To10(glCdr.BillingType).ToString());
+                Console.WriteLine("FreeOCharge:" + Conver16To10(glCdr.FreeOCharge).ToString());
+                sendCdr.ISFREE = Conver16To10(glCdr.FreeOCharge) == 255 ? 0 : 1;
                 //Console.WriteLine("StationOrNewServiceType:" + Conver16To10(glCdr.StationOrNewServiceType).ToString());
                 //Console.WriteLine("CallerAndCalleeAddress:" + Conver16To10(glCdr.CallerAndCalleeAddress).ToString());
 
@@ -732,15 +754,15 @@ namespace Bill
 
                 //Console.WriteLine();
 
-                //Console.WriteLine("CallerUserType:" + Conver16To10(glCdr.CallerUserType).ToString());
+               // Console.WriteLine("CallerUserType:" + Conver16To10(glCdr.CallerUserType).ToString());
 
-                //Console.WriteLine("BillingSign:" + Conver16To10(glCdr.BillingSign).ToString());
+               // Console.WriteLine("BillingSign:" + Conver16To10(glCdr.BillingSign).ToString());
 
                 //Console.WriteLine("CallEndDate:" + BitConverter.ToString(glCdr.CallEndDate));
 
                 //Console.WriteLine("OutTo:" + Conver16To10(glCdr.OutTo).ToString());
-
-
+                sendCdr.OUT_BUREAU = Conver16To10(glCdr.OutTo);
+               // Console.WriteLine("Duration:" + BitConverter.ToString(glCdr.Duration));
                 //Console.Write("Duration:");
                 //foreach (byte b in glCdr.Duration)
                 //{
@@ -874,10 +896,45 @@ namespace Bill
 
                 //Console.WriteLine("Other:" + BitConverter.ToString(glCdr.Other));
 
+                sendCdrs.Add(sendCdr);
+                if (sendCdrs.Count >= 20)
+                {
+                    // TODO do post
+                    ListsConvertToJson t = new ListsConvertToJson();
+                    string json = t.ConvertJson(sendCdrs, "SendCDR");
+                    if (Post(url, json))
+                    {
+                        Thread.Sleep(1 * 1000 * 2);
+                        postCount += sendCdrs.Count;
+                        CreateInLog("本次成功处理记录:" + postCount.ToString());
+                        sendCdrs = new List<object>();// 重新来过
+                    }
+                    else
+                    {
+                        sendCdrs = new List<object>();
+                        break;
+                    }
+
+                }
+
+
+                if (isDebug && postCount >= 100)
+                {
+                    break;
+                }
             }
-            swGl40.Close();
-            br.Close();
-            CreateInLog("高凌话单：" + glCdrFile + "处理执行完毕!");
+            
+            //swGl40.Close();
+            glbr.Close();
+
+            ListsConvertToJson t1 = new ListsConvertToJson();
+            string jsonParams = t1.ConvertJson(sendCdrs, "SendCDR");
+            if (Post(url, jsonParams))
+            {
+                postCount += sendCdrs.Count;
+            }
+            CreateInLog("高凌话单：" + glCdrFile + "本次处理执行完毕!合计处理：" + postCount.ToString() + "条！");
+            return postCount;
         }
         /// <summary>
 		/// The main entry point for the application.
@@ -918,11 +975,13 @@ namespace Bill
             string zxLockFile = Directory.GetCurrentDirectory() + @"\_zxj10_lock"; // 记录中兴zxj10当前处理进度
             string glLockFile = Directory.GetCurrentDirectory() + @"\_gl04_lock"; //  记录高凌04当前处理进度
 
+
 			IniFile config = new IniFile(configPath);
 			//string test = config.IniReadValue("db","host");
 
             string apiUri = config.IniReadValue("general", "apiUri");
 			string pbxtype = config.IniReadValue("general","pbxtype");
+            bool debugMode = config.IniReadValue("general", "debugmode") == "true"?true:false;
 
             // 加载中兴继续0话单运行时数据
             string[] jx10cdrdir = config.IniReadValue("general", "jx10cdrdir").Split(';');
@@ -941,18 +1000,24 @@ namespace Bill
 
 
             // 加载高凌04话单运行时数据
-            string[] glcdrdir = config.IniReadValue("general", "gl04cdrdir").Split(';');
+            string[] gl04cdrdir = config.IniReadValue("general", "gl04cdrdir").Split(';');
+            int[] gl04PostCounts = new int[gl04cdrdir.Length];
+            string lastGl04LockContent = GetLockContent(glLockFile);
+            string[] lastGl04LockContents = lastGl04LockContent.Split(',');
+            DateTime lastGLPostTime = lastGl04LockContents.Length > 0 && !string.IsNullOrEmpty(lastGl04LockContents[0]) ? Convert.ToDateTime(lastGl04LockContents[0]) : DateTime.Now;
+            for (int lock_m = 0; lock_m < gl04PostCounts.Length; lock_m++)
+            {
+                if (lock_m < lastGl04LockContents.Length && lastGl04LockContents.Length > 1)
+                {
+                    gl04PostCounts[lock_m] = Convert.ToInt32(lastGl04LockContents[lock_m + 1]);
+                }
+            }
 
-            CreateInLog("话单分析处理服务，启动成功！");
-
-			//
-			// TODO: Add code to start application here
-            //
-
-
-            #region 换单处理逻辑
             string[] lastProcessZXFileName = new string[jx10cdrdir.Length];
-            string lastProcessGLFileName = "";
+            string[] lastProcessGLFileName = new string[gl04cdrdir.Length];
+
+            #region 话单处理逻辑
+            CreateInLog("话单分析处理服务，启动成功！");
 			while(true){
                 try {
                     var now = DateTime.Now;
@@ -983,7 +1048,7 @@ namespace Bill
                                 isNextDay = true;
                             }
 
-                            int doneRecords = HandleZXJx10(apiUri,zxCdrFile, tempCdrFile, jx10PostCounts[i] + 1);
+                            int doneRecords = HandleZXJx10(apiUri,zxCdrFile, tempCdrFile, jx10PostCounts[i] + 1,debugMode);
 
                             if (isNextDay || compZxPostTime > 0)
                             {
@@ -1015,23 +1080,69 @@ namespace Bill
                     #endregion
 
                     #region 高凌话单读取
-                    string glCdrFile = Directory.GetCurrentDirectory() + @"\" + config.IniReadValue("general", "gl04cdrdir");
-                    string todayGLBillFile = now.Year.ToString() + now.Month.ToString().PadLeft(2, '0')  + now.Day.ToString().PadLeft(2, '0')+".cdr";
-                    for (var i = 0; i < glcdrdir.Length; i++)
+                    int compGLPostTime = DateDiff(lastGLPostTime, now);
+                    if (compGLPostTime > 0)
                     {
-                        if (glcdrdir[i] != "" && glcdrdir[i] != null)
+                        CreateInLog("高凌话单处理发现尚有积压未处理的天数:" + compGLPostTime.ToString());
+                    }
+
+                    DateTime doneGLDateTime = compGLPostTime > 0 ? lastGLPostTime : now;
+                    string todayGLBillFile = doneGLDateTime.Year.ToString() + doneGLDateTime.Month.ToString().PadLeft(2, '0') + doneGLDateTime.Day.ToString().PadLeft(2, '0') + ".cdr";
+
+                   
+
+                    for (var i = 0; i < gl04cdrdir.Length; i++)
+                    {
+                        if (gl04cdrdir[i] != "" && gl04cdrdir[i] != null)
                         {
-                            CreateInLog("开始高凌话单分析！话单位置:" + glcdrdir[i]);
-                            HandleGL04(glcdrdir[i], lastProcessGLFileName, tempCdrFile, todayGLBillFile);
+                            CreateInLog("开始高凌话单分析！话单位置:" + gl04cdrdir[i]);
+            
+                            bool isNextDay = false;
+                            string glCdrFile = gl04cdrdir[i] + @"\" + todayGLBillFile;
+
+                            // 日期变更前最后处理一次前次文件
+                            if (lastProcessGLFileName[i] != null && todayGLBillFile != lastProcessGLFileName[i] && File.Exists(glCdrFile))
+                            {
+                                glCdrFile = gl04cdrdir[i] + @"\" + lastProcessGLFileName[i];
+                                isNextDay = true;
+                            }
+
+                            int doneRecords = HandleGL04(apiUri, glCdrFile, tempCdrFile, gl04PostCounts[i] + 1,debugMode);
+
+                            if (isNextDay || compGLPostTime > 0)
+                            {
+                                gl04PostCounts[i] = 0;
+                                lastProcessGLFileName[i] = null;// 这个没必要
+                                CreateInLog("=====高凌话单:" + glCdrFile +"全部处理完毕=====");
+                            }
+                            else
+                            {
+                                gl04PostCounts[i] = gl04PostCounts[i] + doneRecords;
+                                lastProcessGLFileName[i] = todayGLBillFile;// 程序内部记住上一次处理文件名
+                                CreateInLog("=====高凌话单:" + glCdrFile + "已经处理"+gl04PostCounts[i].ToString()+"条=====");
+                            }
+
+                            string lockContent = string.Empty;
+                            for (int j = 0; j < gl04PostCounts.Length; j++)
+                            {
+                                lockContent += gl04PostCounts[j];
+                                if (j < gl04PostCounts.Length - 1)
+                                    lockContent += ",";
+                            }
+                            RecordLock(doneGLDateTime, glLockFile, lockContent);
+
                         }
                     }
 
-                    lastProcessGLFileName = todayGLBillFile; // 程序内部记住上一次处理文件名
+                    if (compGLPostTime > 0)
+                    {
+                        lastGLPostTime = lastGLPostTime.AddDays(1);
+                    }
                     #endregion
                 }
                 catch (Exception ex)
                 {
-                    CreateInLog("程序错误："+ex.Message);
+                    CreateInLog("处理异常："+ex.Message);
                 }
 					
                 Thread.Sleep(1 * 1000 * 60);
