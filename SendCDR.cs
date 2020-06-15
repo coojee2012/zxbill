@@ -18,7 +18,7 @@ namespace Bill
         public long DURATION { get; set; }	//通话时长
         public int BILLING_LOGO { get; set; }	//计费方标识 0 主叫计费 1被叫计费
         public string BILLING_BUNBER { get; set; }	//计费号码
-        public int TYPE { get; set; }	//类别
+        public int TYPE { get; set; }	//类别 0  其他 1 市话  2 长途
 
         public SendCDR()
         {     

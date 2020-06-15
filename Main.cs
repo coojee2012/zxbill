@@ -9,6 +9,7 @@ using System.Collections.Generic;
 
 using System.Diagnostics;
 using Newtonsoft.Json;
+using System.Text.RegularExpressions;
 
 
 
@@ -345,6 +346,35 @@ namespace Bill
             TimeSpan sp = end.Subtract(start);
             return sp.Days;
         }
+        private static string CorrectTelNumber(string telnumber)
+        {
+            string res = telnumber;
+            if ((telnumber.Length >= 12 || telnumber.Length == 9) && telnumber[0] == '2')
+            {
+                res = telnumber.Substring(1);
+            }
+            else if (telnumber.Length == 12 && telnumber[11] == '0')
+            {
+                res = telnumber.Substring(0, 11);
+            }
+            return res;
+        }
+
+        private static int CorrectCallType(string calledNumber)
+        {
+            if (calledNumber.Length < 8)
+            {
+                return 0;
+            }
+            else if (calledNumber[0] == '0')
+            {
+                return 2;
+            }
+            else
+            {
+                return 1;
+            }
+        }
         // 中兴JX10话单处理
         public static int HandleZXJx10(string url,string zxCdrFile, string tempCdrFile, int startRecord = 1,bool isDebug=false)
         {
@@ -355,7 +385,7 @@ namespace Bill
 
             File.Delete(tempCdrFile);
             File.Copy(zxCdrFile, tempCdrFile);
-            Console.WriteLine("{0} copied to {1}", zxCdrFile, tempCdrFile);
+            //Console.WriteLine("{0} copied to {1}", zxCdrFile, tempCdrFile);
 
 
             //FileStream fsZxj10 = new FileStream(zxj10BillFile, FileMode.Create, FileAccess.Write);
@@ -440,9 +470,9 @@ namespace Bill
 
 
                 string callProperties = Conver16To2Right2(zxCdr.CallProperties[0], '0');
-                sendCdr.ISFREE = Convert.ToInt32(callProperties.Substring(5, 1));
-                sendCdr.BILLING_LOGO = Convert.ToInt32(callProperties.Substring(3, 1));
-
+                //sendCdr.ISFREE = Convert.ToInt32(callProperties.Substring(5, 1));
+                //sendCdr.BILLING_LOGO = Convert.ToInt32(callProperties.Substring(3, 1));
+                sendCdr.BILLING_LOGO = 0;
                 string startStr = BitConverter.ToString(zxCdr.StartTime);
                 string[] startStrs = startStr.Split('-');
                 string startStrRevert = startStrs[3] + startStrs[2] + startStrs[1] + startStrs[0];
@@ -493,11 +523,18 @@ namespace Bill
                     CalleeNumber += ConvertZXBCD(str.Substring(0, 4), 8);
 
                 }
-                sendCdr.CALLED_NUMBER = CalleeNumber;
+                sendCdr.CALLED_NUMBER = CorrectTelNumber(CalleeNumber);
 
-                sendCdr.BILLING_BUNBER = sendCdr.BILLING_LOGO == 0 ? sendCdr.CALLING_NUMBER : sendCdr.CALLED_NUMBER;
+                //sendCdr.BILLING_BUNBER = sendCdr.BILLING_LOGO == 0 ? sendCdr.CALLING_NUMBER : sendCdr.CALLED_NUMBER;
+                sendCdr.BILLING_BUNBER = sendCdr.CALLING_NUMBER;
+                sendCdr.TYPE = CorrectCallType(sendCdr.CALLED_NUMBER);
+                sendCdr.ISFREE = sendCdr.TYPE > 0 ? 1 : 0;
 
                 sendCdrs.Add(sendCdr);
+                if (isDebug)
+                {
+                    CreateInLog(sendCdr.CALLING_NUMBER + " " + sendCdr.CALLED_NUMBER + " " + sendCdr.TYPE + " " + sendCdr.ISFREE);
+                }
                 if (sendCdrs.Count >= 20)
                 {
                     // TODO do post
@@ -508,6 +545,7 @@ namespace Bill
                         Thread.Sleep(1 * 1000 * 2);
                         postCount += sendCdrs.Count;
                         CreateInLog("本次成功处理记录:" + postCount.ToString());
+                        
                         sendCdrs = new List<object>();// 重新来过
                     }
                     else
@@ -547,7 +585,7 @@ namespace Bill
 
             File.Delete(tempCdrFile);
             File.Copy(glCdrFile, tempCdrFile);
-            Console.WriteLine("{0} copied to {1}", glCdrFile, tempCdrFile);
+            //Console.WriteLine("{0} copied to {1}", glCdrFile, tempCdrFile);
 
 
             //string gl40BillFile = Directory.GetCurrentDirectory() + @"\test_ngl04.txt";
@@ -688,6 +726,7 @@ namespace Bill
 
                 }
                 //swGl40.Write(CallerNumber);
+               
                 sendCdr.CALLING_NUMBER = CallerNumber;
                 
 
@@ -713,9 +752,12 @@ namespace Bill
                 }
                 //swGl40.Write(CalleeNumber);
                 //swGl40.WriteLine();
-                sendCdr.CALLED_NUMBER = CalleeNumber;
-                sendCdr.BILLING_LOGO = 1;
-                sendCdr.BILLING_BUNBER = CallerNumber;
+                sendCdr.CALLED_NUMBER = CorrectTelNumber(CalleeNumber);
+                sendCdr.BILLING_LOGO = 0;
+
+                sendCdr.BILLING_BUNBER = sendCdr.CALLING_NUMBER;
+                sendCdr.TYPE = CorrectCallType(sendCdr.CALLED_NUMBER);
+                sendCdr.ISFREE = sendCdr.TYPE > 0 ? 1 : 0;
               
 
 
@@ -726,15 +768,15 @@ namespace Bill
                 //Console.WriteLine("LetterCode:" + Conver16To10(glCdr.LetterCode).ToString());
                 //Console.WriteLine("ModuleNumber:" + Conver16To10(glCdr.ModuleNumber).ToString());
                 //Console.WriteLine("CallCategory:" + Conver16To10(glCdr.CallCategory).ToString());
-                sendCdr.TYPE = Conver16To10(glCdr.CallCategory);
+                //sendCdr.TYPE = Conver16To10(glCdr.CallCategory);
                 //Console.WriteLine("CallerAreaCode:" + Conver16To10(glCdr.CallerAreaCode).ToString());
                 //Console.WriteLine("CallerAreaCode:" + Conver16To10(glCdr.CallerAreaCode).ToString());
                 //Console.WriteLine("CalleeAreaCode:" + Conver16To10(glCdr.CalleeAreaCode).ToString());
                 //Console.WriteLine("EnterDirectionSign:" + Conver16To10(glCdr.EnterDirectionSign).ToString());
                 sendCdr.INCOMING_BUREAU = Conver16To10(glCdr.EnterDirectionSign);
-               // Console.WriteLine("BillingType:" + Conver16To10(glCdr.BillingType).ToString());
-                Console.WriteLine("FreeOCharge:" + Conver16To10(glCdr.FreeOCharge).ToString());
-                sendCdr.ISFREE = Conver16To10(glCdr.FreeOCharge) == 255 ? 0 : 1;
+                // Console.WriteLine("BillingType:" + Conver16To10(glCdr.BillingType).ToString());
+                //Console.WriteLine("FreeOCharge:" + Conver16To10(glCdr.FreeOCharge).ToString());
+                //sendCdr.ISFREE = Conver16To10(glCdr.FreeOCharge) == 255 ? 0 : 1;
                 //Console.WriteLine("StationOrNewServiceType:" + Conver16To10(glCdr.StationOrNewServiceType).ToString());
                 //Console.WriteLine("CallerAndCalleeAddress:" + Conver16To10(glCdr.CallerAndCalleeAddress).ToString());
 
@@ -897,6 +939,10 @@ namespace Bill
                 //Console.WriteLine("Other:" + BitConverter.ToString(glCdr.Other));
 
                 sendCdrs.Add(sendCdr);
+                if (isDebug)
+                {
+                    CreateInLog(sendCdr.CALLING_NUMBER + " " + sendCdr.CALLED_NUMBER + " " + sendCdr.TYPE + " " + sendCdr.ISFREE);
+                }
                 if (sendCdrs.Count >= 20)
                 {
                     // TODO do post
@@ -907,6 +953,7 @@ namespace Bill
                         Thread.Sleep(1 * 1000 * 2);
                         postCount += sendCdrs.Count;
                         CreateInLog("本次成功处理记录:" + postCount.ToString());
+                       
                         sendCdrs = new List<object>();// 重新来过
                     }
                     else
