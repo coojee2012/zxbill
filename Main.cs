@@ -382,9 +382,13 @@ namespace Bill
            
 
             //string zxj10BillFile = Directory.GetCurrentDirectory() + @"\test_zxj10.txt";
-
-            File.Delete(tempCdrFile);
+            if (File.Exists(tempCdrFile))
+            {
+                File.SetAttributes(tempCdrFile, FileAttributes.Normal);
+                File.Delete(tempCdrFile);  
+            }
             File.Copy(zxCdrFile, tempCdrFile);
+
             //Console.WriteLine("{0} copied to {1}", zxCdrFile, tempCdrFile);
 
 
@@ -583,7 +587,11 @@ namespace Bill
             
             //string glCdrFile = cdrdir + @"\" + todayBillFile;
 
-            File.Delete(tempCdrFile);
+            if (File.Exists(tempCdrFile))
+            {
+                File.SetAttributes(tempCdrFile, FileAttributes.Normal);
+                File.Delete(tempCdrFile);
+            }
             File.Copy(glCdrFile, tempCdrFile);
             //Console.WriteLine("{0} copied to {1}", glCdrFile, tempCdrFile);
 
