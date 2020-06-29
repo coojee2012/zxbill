@@ -1037,6 +1037,7 @@ namespace Bill
             string apiUri = config.IniReadValue("general", "apiUri");
 			string pbxtype = config.IniReadValue("general","pbxtype");
             bool debugMode = config.IniReadValue("general", "debugmode") == "true"?true:false;
+            int intervalBetween = int.Parse(config.IniReadValue("general", "intervalBetween"));
 
             // 加载中兴继续0话单运行时数据
             string[] jx10cdrdir = config.IniReadValue("general", "jx10cdrdir").Split(';');
@@ -1199,8 +1200,8 @@ namespace Bill
                 {
                     CreateInLog("处理异常："+ex.Message);
                 }
-					
-                Thread.Sleep(1 * 1000 * 60);
+
+                Thread.Sleep(intervalBetween * 1000 * 60);
 
             }
             #endregion
