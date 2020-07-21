@@ -124,6 +124,8 @@
     <Compile Include="Main.cs">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="NetDriveCtl.cs" />
+    <Compile Include="NetworkConnection.cs" />
     <Compile Include="PostResponse.cs" />
     <Compile Include="Properties\Resources.Designer.cs">
       <AutoGen>True</AutoGen>

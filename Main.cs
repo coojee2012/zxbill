@@ -972,7 +972,6 @@ namespace Bill
 
                 }
 
-
                 if (isDebug && postCount >= 100)
                 {
                     break;
@@ -990,6 +989,21 @@ namespace Bill
             }
             CreateInLog("高凌话单：" + glCdrFile + "本次处理执行完毕!合计处理：" + postCount.ToString() + "条！");
             return postCount;
+        }
+
+        public static void TryReconnectDrive(string remotePath, string localpath,string userName,string password)
+        {
+            int disconnetRes = NetworkConnection.Disconnect(localpath);
+            CreateInLog("Try Disconnect Driver: " + localpath + "    " + disconnetRes.ToString());
+            int status = NetworkConnection.Connect(remotePath, localpath, userName, password);
+            if (status == (int)ERROR_ID.ERROR_SUCCESS)
+            {
+                CreateInLog("Reconnect Driver: " + localpath + " Success!");
+            }
+            else
+            {
+                CreateInLog("Reconnect Driver: " + localpath + " Fail! Status:"+status.ToString());
+            }
         }
         /// <summary>
 		/// The main entry point for the application.
@@ -1074,6 +1088,7 @@ namespace Bill
 
             #region 话单处理逻辑
             CreateInLog("话单分析处理服务，启动成功！");
+            
 			while(true){
                 try {
                     var now = DateTime.Now;
@@ -1096,7 +1111,14 @@ namespace Bill
                             bool isNextDay = false;
 
                             string zxCdrFile = jx10cdrdir[i] + @"\" + todayZXBillFile;
-
+                            // 文件不存在尝试重连一次网络驱动器
+                            if (!File.Exists(zxCdrFile))
+                            {
+                                string remote = config.IniReadValue("general", "jx10dirremote"+i.ToString());
+                                string username = config.IniReadValue("general", "jx10dirusername" + i.ToString());
+                                string passwd = config.IniReadValue("general", "jx10dirpassword" + i.ToString());
+                                TryReconnectDrive(remote, jx10cdrdir[i], username, passwd);
+                            }
                             // 日期变更前最后处理一次前次文件
                             if (lastProcessZXFileName[i] != null && todayZXBillFile != lastProcessZXFileName[i] && File.Exists(zxCdrFile))
                             {
@@ -1155,7 +1177,11 @@ namespace Bill
             
                             bool isNextDay = false;
                             string glCdrFile = gl04cdrdir[i] + @"\" + todayGLBillFile;
-
+                            // 文件不存在尝试重连一次网络驱动器
+                            //if (!File.Exists(glCdrFile))
+                            //{
+                            //    TryReconnectDrive(@"\\10.211.55.5\mssql", "T:", "Administrator", "123456");
+                            //}
                             // 日期变更前最后处理一次前次文件
                             if (lastProcessGLFileName[i] != null && todayGLBillFile != lastProcessGLFileName[i] && File.Exists(glCdrFile))
                             {
