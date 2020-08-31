@@ -19,6 +19,7 @@ namespace Bill
         public int BILLING_LOGO { get; set; }	//计费方标识 0 主叫计费 1被叫计费
         public string BILLING_BUNBER { get; set; }	//计费号码
         public int TYPE { get; set; }	//类别 0  其他 1 市话  2 长途
+        public string EXCHANGE { get; set; } // 
 
         public SendCDR()
         {     

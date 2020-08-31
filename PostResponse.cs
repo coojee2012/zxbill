@@ -13,4 +13,16 @@ namespace Bill
 
         }
     }
+
+    public class PostRetyrResponse
+    {
+        public int Code { get; set; }
+        public int Year { get; set; }
+        public int Month { get; set; }
+        public int Interval { get; set; }
+        public PostRetyrResponse()
+        {
+
+        }
+    }
 }
