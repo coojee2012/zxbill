@@ -271,7 +271,7 @@ namespace Bill
                 // request.ContentType = "application/json;charset=UTF-8";
 
                 Byte[] data = Encoding.ASCII.GetBytes(jsonParam);
-
+                CreateInLog("Post Length:" + data.Length.ToString());
 				request.Method = "POST";		
                 request.ContentType = "application/json;charset=UTF-8";
 				request.ContentLength = data.Length;
@@ -416,7 +416,7 @@ namespace Bill
             }
         }
         // 中兴JX10话单处理
-        public static int HandleZXJx10(string url,string zxCdrFile, string tempCdrFile,string exchange, int startRecord = 1,bool isDebug=false)
+        public static int HandleZXJx10(string url,string zxCdrFile, string tempCdrFile,string exchange,int maxpost, int startRecord = 1,bool isDebug=false)
         {
             int postCount = 0; //记录post的记录数
            
@@ -573,8 +573,10 @@ namespace Bill
                     CallerNumber += ConvertZXBCD(str.Substring(0, 4), 8);
 
                 }
-                
                 sendCdr.CALLING_NUMBER = CallerNumber;
+
+              
+               
 
                 string CalleeNumber = "";
                 for (int i = 0; i < zxCdr.CalleeNumber.Length; i++)
@@ -591,9 +593,34 @@ namespace Bill
                 }
                 sendCdr.CALLED_NUMBER = CorrectTelNumber(CalleeNumber);
 
+                int needLinkNumber = Convert.ToInt32(callProperties.Substring(2, 1));
+                if (needLinkNumber == 1)
+                {
+                    string BillNumber = "";
+                    for (int i = 0; i < zxCdr.LinkNumber.Length; i++)
+                    {
+                        string str = Conver16To2Right2(zxCdr.LinkNumber[i], '0');
+                        if (str == "11111111")
+                        {
+                            break;
+                        }
+
+
+                        BillNumber += ConvertZXBCD(str.Substring(4, 4), 8);
+                        BillNumber += ConvertZXBCD(str.Substring(0, 4), 8);
+
+                    }
+                    sendCdr.BILLING_BUNBER = BillNumber;
+                    sendCdr.TYPE = 4;
+                }
+                else
+                {
+                    sendCdr.BILLING_BUNBER = sendCdr.CALLING_NUMBER;
+                    sendCdr.TYPE = CorrectCallType(sendCdr.CALLED_NUMBER);
+                }
+
                 //sendCdr.BILLING_BUNBER = sendCdr.BILLING_LOGO == 0 ? sendCdr.CALLING_NUMBER : sendCdr.CALLED_NUMBER;
-                sendCdr.BILLING_BUNBER = sendCdr.CALLING_NUMBER;
-                sendCdr.TYPE = CorrectCallType(sendCdr.CALLED_NUMBER);
+              
                // sendCdr.ISFREE = sendCdr.TYPE > 0 ? 1 : 0;
                 sendCdr.EXCHANGE = exchange;
 
@@ -602,7 +629,7 @@ namespace Bill
                 {
                     CreateInLog(sendCdr.CALLING_NUMBER + " " + sendCdr.CALLED_NUMBER + " " + sendCdr.OUT_BUREAU + " " + sendCdr.ISFREE);
                 }
-                if (sendCdrs.Count >= 20)
+                if (sendCdrs.Count >= maxpost)
                 {
                     // TODO do post
                     ListsConvertToJson t = new ListsConvertToJson();
@@ -643,7 +670,7 @@ namespace Bill
 		
         
         // 高凌GL04话单处理
-        public static int HandleGL04(string url, string glCdrFile, string tempCdrFile,string exchange, int startRecord = 1, bool isDebug=false)
+        public static int HandleGL04(string url, string glCdrFile, string tempCdrFile,string exchange,int maxpost, int startRecord = 1, bool isDebug=false)
         {
 
             int postCount = 0; //记录post的记录数
@@ -1014,7 +1041,7 @@ namespace Bill
                 {
                     CreateInLog(sendCdr.CALLING_NUMBER + " " + sendCdr.CALLED_NUMBER + " " + sendCdr.TYPE + " " + sendCdr.ISFREE);
                 }
-                if (sendCdrs.Count >= 20)
+                if (sendCdrs.Count >= maxpost)
                 {
                     // TODO do post
                     ListsConvertToJson t = new ListsConvertToJson();
@@ -1080,9 +1107,9 @@ namespace Bill
             if (!isRuned)
             {
                 CreateInLog("服务程序已启动，请不要重复启动！！！");
-                Console.WriteLine("请按任意键退出本次启动！");
-                Console.ReadLine();
-                Environment.Exit(0); 
+                //Console.WriteLine("请按任意键退出本次启动！");
+                //Console.ReadLine();
+               // Environment.Exit(0); 
             }
 
             bool bRet = SetConsoleCtrlHandler(cancelHandler, true);
@@ -1111,6 +1138,7 @@ namespace Bill
 			string pbxtype = config.IniReadValue("general","pbxtype");
             bool debugMode = config.IniReadValue("general", "debugmode") == "true"?true:false;
             int intervalBetween = int.Parse(config.IniReadValue("general", "intervalBetween"));
+            int MAXPOSTRECORD = int.Parse(config.IniReadValue("general", "maxpostrecord"));
             string EXCHANGE = config.IniReadValue("general", "exchange");
 
             // 加载中兴继续0话单运行时数据
@@ -1146,9 +1174,14 @@ namespace Bill
             string[] lastProcessZXFileName = new string[jx10cdrdir.Length];
             string[] lastProcessGLFileName = new string[gl04cdrdir.Length];
 
+            if (MAXPOSTRECORD < 1)
+            {
+                MAXPOSTRECORD = 50;
+            }
+
             #region 话单处理逻辑
             CreateInLog("话单分析处理服务，启动成功！");
-            
+            CreateInLog("每次处理最大记录数:" + MAXPOSTRECORD.ToString());
 			while(true){
                 try {
                     var now = DateTime.Now;
@@ -1189,7 +1222,7 @@ namespace Bill
                                 isNextDay = true;
                             }
 
-                            int doneRecords = HandleZXJx10(apiUri,zxCdrFile, tempCdrFile,EXCHANGE, jx10PostCounts[i] + 1,debugMode);
+                            int doneRecords = HandleZXJx10(apiUri,zxCdrFile, tempCdrFile,EXCHANGE,MAXPOSTRECORD, jx10PostCounts[i] + 1,debugMode);
 
                             if (isNextDay || compZxPostTime > 0)
                             {
@@ -1214,18 +1247,20 @@ namespace Bill
 
                             #region retry month cdr
                             var retyrData = GetRetryAndInterval(retryConfUri);
-                            if (retyrData.Code == 200)
+                            if (retyrData != null && retyrData.Code == 200)
                             {
-                                if (retyrData.Year > 1999 && retyrData.Month > 1 && retyrData.Month < 13)
+                                if (retyrData.Year > 1999 && retyrData.Month > 0 && retyrData.Month < 13 && retyrData.Day > 0 && retyrData.Days > 0)
                                 {
-                                    for (var day = 1; day < 32; day++)
+                                    var startDate = Convert.ToDateTime(retyrData.Year.ToString() + "-" + retyrData.Month.ToString().PadLeft(2, '0')+"-"+retyrData.Day.ToString().PadLeft(2, '0')+" 00:00:01");
+                                    for (var day = 0; day < retyrData.Days; day++)
                                     {
-                                        string retryBillFile = "JF" + retyrData.Year.ToString() + retyrData.Month.ToString().PadLeft(2, '0') + ".B" + day.ToString().PadLeft(2, '0');
+                                        var useDate = startDate.AddDays(day);
+                                        string retryBillFile = "JF" + useDate.Year.ToString() + useDate.Month.ToString().PadLeft(2, '0') + ".B" + useDate.Day.ToString().PadLeft(2, '0');
                                         string retryCdrFile = jx10cdrdir[i] + @"\" + retryBillFile;
 
                                         if (File.Exists(retryCdrFile))
                                         {
-                                            HandleZXJx10(apiUri, retryCdrFile, tempCdrFile,EXCHANGE, 1, debugMode);
+                                            HandleZXJx10(apiUri, retryCdrFile, tempCdrFile,EXCHANGE,MAXPOSTRECORD, 1, debugMode);
                                         }
                                     }
 
@@ -1280,7 +1315,7 @@ namespace Bill
                                 isNextDay = true;
                             }
 
-                            int doneRecords = HandleGL04(apiUri, glCdrFile, tempCdrFile,EXCHANGE, gl04PostCounts[i] + 1,debugMode);
+                            int doneRecords = HandleGL04(apiUri, glCdrFile, tempCdrFile,EXCHANGE,MAXPOSTRECORD, gl04PostCounts[i] + 1,debugMode);
 
                             if (isNextDay || compGLPostTime > 0)
                             {
@@ -1307,18 +1342,20 @@ namespace Bill
                             #region retry month cdr
 
                             var retyrData = GetRetryAndInterval(retryConfUri);
-                            if (retyrData.Code == 200)
+                            if (retyrData != null && retyrData.Code == 200)
                             {
-                                if (retyrData.Year > 1999 && retyrData.Month > 1 && retyrData.Month < 13)
+                                if (retyrData.Year > 1999 && retyrData.Month > 0 && retyrData.Month < 13 && retyrData.Day > 0 && retyrData.Days > 0)
                                 {
-                                    for (var day = 1; day < 32; day++)
+                                    var startDate = Convert.ToDateTime(retyrData.Year.ToString() + "-" + retyrData.Month.ToString().PadLeft(2, '0') + "-" + retyrData.Day.ToString().PadLeft(2, '0') + " 00:00:01");
+                                    for (var day = 0; day < retyrData.Days; day++)
                                     {
-                                        string retryBillFile = retyrData.Year.ToString() + retyrData.Month.ToString().PadLeft(2, '0') + day.ToString().PadLeft(2, '0') + ".cdr"; ;
+                                        var useDate = startDate.AddDays(day);
+                                        string retryBillFile = useDate.Year.ToString() + useDate.Month.ToString().PadLeft(2, '0') + useDate.Day.ToString().PadLeft(2, '0') + ".cdr"; ;
                                         string retryCdrFile = gl04cdrdir[i] + @"\" + retryBillFile;
 
                                         if (File.Exists(retryCdrFile))
                                         {
-                                            HandleGL04(apiUri, retryCdrFile, tempCdrFile, EXCHANGE, 1, debugMode);
+                                            HandleGL04(apiUri, retryCdrFile, tempCdrFile, EXCHANGE,MAXPOSTRECORD, 1, debugMode);
                                         }
                                     }
 
